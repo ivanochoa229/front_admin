@@ -13,8 +13,8 @@ type LocationState = {
 const LoginPage = () => {
   const location = useLocation();
   const { login, isLoading, error } = useAuth();
-  const [email, setEmail] = useState('demo@empresa.com');
-  const [password, setPassword] = useState('Demo1234');
+  const [email, setEmail] = useState('maria.lopez@empresa.com');
+  const [password, setPassword] = useState('Gestor1234');
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -62,7 +62,15 @@ const LoginPage = () => {
           <small>
             Serás redirigido a: <strong>{from}</strong>
           </small>
-          <small>Utiliza la cuenta demo para explorar el sistema.</small>
+          <small>Prueba con estas credenciales disponibles:</small>
+          <ul>
+            <li>
+              <strong>Gestor:</strong> maria.lopez@empresa.com / Gestor1234
+            </li>
+            <li>
+              <strong>Colaborador:</strong> carlos.perez@empresa.com / Colaborador123
+            </li>
+          </ul>
         </footer>
       </div>
     </div>

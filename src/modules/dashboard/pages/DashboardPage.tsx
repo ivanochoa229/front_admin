@@ -1,23 +1,28 @@
 import { useMemo } from 'react';
 
+import { useAuth } from '../../auth/AuthContext';
+import ProjectSummary from '../../projects/components/ProjectSummary';
 import { useProjectManagement } from '../../shared/context/ProjectManagementContext';
 import { ProjectStatus } from '../../shared/types/project';
-import ProjectSummary from '../../projects/components/ProjectSummary';
+import { getProjectsVisibleToUser } from '../../shared/utils/access';
 import StatsCard from '../components/StatsCard';
 import './DashboardPage.css';
 
 const DashboardPage = () => {
   const { projects } = useProjectManagement();
+  const { user } = useAuth();
+
+  const visibleProjects = useMemo(() => getProjectsVisibleToUser(projects, user), [projects, user]);
 
   const { totalProjects, completedProjects, activeProjects, averageProgress, totalBudget, usedBudget } = useMemo(() => {
-    const total = projects.length;
-    const completed = projects.filter((project) => project.status === ProjectStatus.Completed).length;
-    const active = projects.filter((project) => project.status !== ProjectStatus.Completed).length;
+    const total = visibleProjects.length;
+    const completed = visibleProjects.filter((project) => project.status === ProjectStatus.Completed).length;
+    const active = visibleProjects.filter((project) => project.status !== ProjectStatus.Completed).length;
     const progress = total
-      ? Math.round(projects.reduce((acc, project) => acc + project.progress, 0) / total)
+      ? Math.round(visibleProjects.reduce((acc, project) => acc + project.progress, 0) / total)
       : 0;
-    const budget = projects.reduce((acc, project) => acc + project.budget, 0);
-    const used = projects.reduce((acc, project) => acc + project.usedBudget, 0);
+    const budget = visibleProjects.reduce((acc, project) => acc + project.budget, 0);
+    const used = visibleProjects.reduce((acc, project) => acc + project.usedBudget, 0);
 
     return {
       totalProjects: total,
@@ -27,7 +32,7 @@ const DashboardPage = () => {
       totalBudget: budget,
       usedBudget: used
     };
-  }, [projects]);
+  }, [visibleProjects]);
 
   return (
     <div className="dashboard-page">
@@ -58,7 +63,7 @@ const DashboardPage = () => {
           </div>
         </header>
         <div className="dashboard-page__projects-grid">
-          {projects.map((project) => (
+          {visibleProjects.map((project) => (
             <ProjectSummary key={project.id} project={project} />
           ))}
         </div>

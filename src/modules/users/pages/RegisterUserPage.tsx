@@ -21,7 +21,8 @@ const DEFAULT_STATE: FormState = {
   role: 'Colaborador'
 };
 
-const ROLE_OPTIONS: CollaboratorRole[] = ['Gestor de proyecto', 'Colaborador'];
+const ROLE_OPTIONS: CollaboratorRole[] = ['Colaborador'];
+const SUMMARY_ROLES: CollaboratorRole[] = ['Gestor de proyecto', 'Colaborador'];
 
 const RegisterUserPage = () => {
   const navigate = useNavigate();
@@ -109,13 +110,14 @@ const RegisterUserPage = () => {
         </div>
         <label>
           Rol del usuario
-          <select name="role" value={form.role} onChange={handleChange} required>
+          <select name="role" value={form.role} onChange={handleChange} required disabled>
             {ROLE_OPTIONS.map((role) => (
               <option key={role} value={role}>
                 {role}
               </option>
             ))}
           </select>
+          <span className="register-user__hint">Los gestores solo pueden crear cuentas de colaboradores.</span>
         </label>
         <div className="register-user__actions">
           <button type="submit">Validar datos</button>
@@ -156,7 +158,7 @@ const RegisterUserPage = () => {
       <section className="register-user__summary">
         <h3>Usuarios registrados</h3>
         <div className="register-user__summary-grid">
-          {ROLE_OPTIONS.map((role) => (
+          {SUMMARY_ROLES.map((role) => (
             <article key={role}>
               <h4>{role}</h4>
               <span>{totalByRole[role]}</span>

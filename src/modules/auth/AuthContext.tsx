@@ -2,6 +2,7 @@ import { createContext, ReactNode, useContext, useEffect, useMemo, useState } fr
 import { useNavigate } from 'react-router-dom';
 
 import authService from '../shared/services/authService';
+import { CollaboratorRole } from '../shared/types/project';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -16,6 +17,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  role: CollaboratorRole;
 }
 
 export interface LoginCredentials {

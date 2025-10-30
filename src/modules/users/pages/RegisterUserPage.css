@@ -37,6 +37,13 @@
   font-weight: 600;
 }
 
+.register-user__hint {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: #475569;
+  margin-top: -0.2rem;
+}
+
 input,
 select {
   border: 1px solid #d0d5dd;

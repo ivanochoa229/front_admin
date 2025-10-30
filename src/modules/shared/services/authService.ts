@@ -7,7 +7,35 @@ interface LoginResponse {
   user: User;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api';
+type MockUser = User & { password: string };
+
+const API_BASE_URL =
+  (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_URL ??
+  'http://localhost:3000/api';
+
+const MOCK_USERS: MockUser[] = [
+  {
+    id: 'col-1',
+    email: 'maria.lopez@empresa.com',
+    name: 'María López',
+    role: 'Gestor de proyecto',
+    password: 'Gestor1234'
+  },
+  {
+    id: 'col-2',
+    email: 'carlos.perez@empresa.com',
+    name: 'Carlos Pérez',
+    role: 'Colaborador',
+    password: 'Colaborador123'
+  },
+  {
+    id: 'col-3',
+    email: 'ana.gomez@empresa.com',
+    name: 'Ana Gómez',
+    role: 'Colaborador',
+    password: 'Colaborador123'
+  }
+];
 
 const authService = {
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
@@ -17,15 +45,16 @@ const authService = {
       const response = await axios.post<LoginResponse>(`${API_BASE_URL}/auth/login`, credentials);
       return response.data;
     } catch (error) {
-      // Mock de respuesta cuando el backend aún no existe.
-      if (credentials.email === 'demo@empresa.com' && credentials.password === 'Demo1234') {
+      const normalizedEmail = credentials.email.trim().toLowerCase();
+      const user = MOCK_USERS.find(
+        (item) => item.email === normalizedEmail && item.password === credentials.password
+      );
+
+      if (user) {
+        const { password, ...sessionUser } = user;
         return {
           token: 'demo-token',
-          user: {
-            id: '1',
-            email: credentials.email,
-            name: 'Cuenta Demo'
-          }
+          user: sessionUser
         };
       }
 

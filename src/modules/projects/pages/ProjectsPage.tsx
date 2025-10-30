@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { useAuth } from '../../auth/AuthContext';
 import { useProjectManagement } from '../../shared/context/ProjectManagementContext';
 import { PriorityLevel } from '../../shared/types/project';
+import { getProjectsVisibleToUser } from '../../shared/utils/access';
 import { formatCurrency, getCollaboratorFullName } from '../../shared/utils/format';
 import StatusBadge from '../components/StatusBadge';
 import './ProjectsPage.css';
@@ -16,11 +18,18 @@ const PRIORITY_LABELS: Record<PriorityLevel, string> = {
 
 const ProjectsPage = () => {
   const { projects, collaborators } = useProjectManagement();
+  const { user } = useAuth();
+  const isManager = user?.role === 'Gestor de proyecto';
+  const headerTitle = isManager ? 'Proyectos' : 'Mis proyectos';
+  const headerDescription = isManager
+    ? 'Consulta el estado y los responsables de cada iniciativa.'
+    : 'Visualiza el estado de los proyectos en los que participas.';
+  const visibleProjects = useMemo(() => getProjectsVisibleToUser(projects, user), [projects, user]);
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredProjects = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return projects.filter((project) =>
+    return visibleProjects.filter((project) =>
       [
         project.name,
         project.description,
@@ -31,14 +40,14 @@ const ProjectsPage = () => {
         .toLowerCase()
         .includes(term)
     );
-  }, [projects, searchTerm, collaborators]);
+  }, [visibleProjects, searchTerm, collaborators]);
 
   return (
     <div className="projects-page">
       <header className="projects-page__header">
         <div>
-          <h2>Proyectos</h2>
-          <p>Consulta el estado y los responsables de cada iniciativa.</p>
+          <h2>{headerTitle}</h2>
+          <p>{headerDescription}</p>
         </div>
         <div className="projects-page__actions">
           <input
@@ -47,9 +56,11 @@ const ProjectsPage = () => {
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
-          <Link to="/projects/new" className="button">
-            Crear proyecto
-          </Link>
+          {isManager && (
+            <Link to="/projects/new" className="button">
+              Crear proyecto
+            </Link>
+          )}
         </div>
       </header>
 

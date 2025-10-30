@@ -93,3 +93,14 @@ footer {
 footer strong {
   color: #0f62fe;
 }
+
+footer ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+footer li {
+  font-size: 0.85rem;
+}

@@ -1,15 +1,17 @@
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { useAuth } from '../../auth/AuthContext';
+import {
+  CreateTaskPayload,
+  useProjectManagement
+} from '../../shared/context/ProjectManagementContext';
 import {
   PriorityLevel,
   Task,
   TaskStatus
 } from '../../shared/types/project';
-import {
-  CreateTaskPayload,
-  useProjectManagement
-} from '../../shared/context/ProjectManagementContext';
+import { canUserAccessProject, getTasksVisibleToUser } from '../../shared/utils/access';
 import { formatCurrency, getCollaboratorFullName } from '../../shared/utils/format';
 import StatusBadge from '../components/StatusBadge';
 import './ProjectDetailPage.css';
@@ -52,8 +54,12 @@ const ProjectDetailPage = () => {
     removeDocumentationFromTask,
     updateTaskStatus
   } = useProjectManagement();
+  const { user } = useAuth();
 
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projects, projectId]);
+  const isManager = user?.role === 'Gestor de proyecto';
+  const visibleTasks = useMemo(() => (project ? getTasksVisibleToUser(project, user) : []), [project, user]);
+  const canViewProject = useMemo(() => (project ? canUserAccessProject(project, user) : false), [project, user]);
 
   const [taskForm, setTaskForm] = useState<CreateTaskPayload>(EMPTY_TASK_FORM);
   const [pendingTask, setPendingTask] = useState<CreateTaskPayload | null>(null);
@@ -78,7 +84,22 @@ const ProjectDetailPage = () => {
     );
   }
 
+  if (!canViewProject) {
+    return (
+      <div className="project-detail">
+        <p>No tienes permisos para acceder a este proyecto.</p>
+        <button type="button" className="link" onClick={() => navigate('/projects')}>
+          Volver a mis proyectos
+        </button>
+      </div>
+    );
+  }
+
   const managerName = getCollaboratorFullName(collaborators, project.managerId);
+  const tasksToRender = isManager ? project.tasks : visibleTasks;
+  const emptyTasksMessage = isManager
+    ? 'Aún no se registraron tareas para este proyecto.'
+    : 'No tienes tareas asignadas en este proyecto.';
 
   const handleTaskFieldChange = (
     event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -298,91 +319,93 @@ const ProjectDetailPage = () => {
         </div>
       </section>
 
-      <section className="project-detail__section">
-        <h3>Registrar nueva tarea</h3>
-        <form className="task-form" onSubmit={handleTaskSubmit}>
-          <div className="task-form__grid">
-            <label>
-              Nombre
-              <input name="name" value={taskForm.name} onChange={handleTaskFieldChange} required />
-            </label>
-            <label>
-              Prioridad
-              <select name="priority" value={taskForm.priority} onChange={handleTaskFieldChange}>
-                {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Fecha inicio
-              <input type="date" name="startDate" value={taskForm.startDate} onChange={handleTaskFieldChange} required />
-            </label>
-            <label>
-              Fecha estimada
-              <input type="date" name="dueDate" value={taskForm.dueDate} onChange={handleTaskFieldChange} required />
-            </label>
-          </div>
-          <label className="task-form__description">
-            Descripción
-            <textarea
-              name="description"
-              value={taskForm.description}
-              onChange={handleTaskFieldChange}
-              rows={3}
-              placeholder="Describe brevemente el alcance de la tarea"
-            />
-          </label>
-          <div className="task-form__actions">
-            <button type="submit">Validar datos</button>
-          </div>
-        </form>
-        {taskError && <div className="alert alert--error">{taskError}</div>}
-        {taskMessage && <div className="alert alert--success">{taskMessage}</div>}
-
-        {pendingTask && (
-          <div className="task-confirmation">
-            <h4>Confirmar creación de tarea</h4>
-            <ul>
-              <li>
-                <strong>Nombre:</strong> {pendingTask.name}
-              </li>
-              <li>
-                <strong>Prioridad:</strong> {PRIORITY_LABELS[pendingTask.priority]}
-              </li>
-              <li>
-                <strong>Fechas:</strong> {pendingTask.startDate} → {pendingTask.dueDate}
-              </li>
-              <li>
-                <strong>Descripción:</strong> {pendingTask.description || 'Sin descripción'}
-              </li>
-            </ul>
-            <div className="task-form__actions">
-              <button type="button" className="secondary" onClick={cancelTaskConfirmation}>
-                Editar
-              </button>
-              <button type="button" onClick={confirmTaskCreation}>
-                Confirmar creación
-              </button>
+      {isManager && (
+        <section className="project-detail__section">
+          <h3>Registrar nueva tarea</h3>
+          <form className="task-form" onSubmit={handleTaskSubmit}>
+            <div className="task-form__grid">
+              <label>
+                Nombre
+                <input name="name" value={taskForm.name} onChange={handleTaskFieldChange} required />
+              </label>
+              <label>
+                Prioridad
+                <select name="priority" value={taskForm.priority} onChange={handleTaskFieldChange}>
+                  {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Fecha inicio
+                <input type="date" name="startDate" value={taskForm.startDate} onChange={handleTaskFieldChange} required />
+              </label>
+              <label>
+                Fecha estimada
+                <input type="date" name="dueDate" value={taskForm.dueDate} onChange={handleTaskFieldChange} required />
+              </label>
             </div>
-          </div>
-        )}
-      </section>
+            <label className="task-form__description">
+              Descripción
+              <textarea
+                name="description"
+                value={taskForm.description}
+                onChange={handleTaskFieldChange}
+                rows={3}
+                placeholder="Describe brevemente el alcance de la tarea"
+              />
+            </label>
+            <div className="task-form__actions">
+              <button type="submit">Validar datos</button>
+            </div>
+          </form>
+          {taskError && <div className="alert alert--error">{taskError}</div>}
+          {taskMessage && <div className="alert alert--success">{taskMessage}</div>}
+
+          {pendingTask && (
+            <div className="task-confirmation">
+              <h4>Confirmar creación de tarea</h4>
+              <ul>
+                <li>
+                  <strong>Nombre:</strong> {pendingTask.name}
+                </li>
+                <li>
+                  <strong>Prioridad:</strong> {PRIORITY_LABELS[pendingTask.priority]}
+                </li>
+                <li>
+                  <strong>Fechas:</strong> {pendingTask.startDate} → {pendingTask.dueDate}
+                </li>
+                <li>
+                  <strong>Descripción:</strong> {pendingTask.description || 'Sin descripción'}
+                </li>
+              </ul>
+              <div className="task-form__actions">
+                <button type="button" className="secondary" onClick={cancelTaskConfirmation}>
+                  Editar
+                </button>
+                <button type="button" onClick={confirmTaskCreation}>
+                  Confirmar creación
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="project-detail__section">
         <div className="project-detail__section-header">
-          <h3>Tareas del proyecto</h3>
-          <span>{project.tasks.length} registradas</span>
+          <h3>{isManager ? 'Tareas del proyecto' : 'Mis tareas asignadas'}</h3>
+          <span>{tasksToRender.length} registradas</span>
         </div>
 
         {actionFeedback && <div className="alert alert--success">{actionFeedback}</div>}
         {actionError && <div className="alert alert--error">{actionError}</div>}
 
         <div className="task-list">
-          {project.tasks.length === 0 && <p className="task-card__empty">Aún no se registraron tareas para este proyecto.</p>}
-          {project.tasks.map((task) => {
+          {tasksToRender.length === 0 && <p className="task-card__empty">{emptyTasksMessage}</p>}
+          {tasksToRender.map((task) => {
             const collaboratorSelection = collaboratorDrafts[task.id] ?? task.assigneeIds;
             const statusDraft = statusDrafts[task.id];
             const pendingDocs = documentationDrafts[task.id] ?? [];
@@ -421,11 +444,11 @@ const ProjectDetailPage = () => {
                   )}
                 </div>
 
-                <div className="task-card__section">
-                  <h5>Recursos asignados</h5>
-                  {task.resources.length === 0 ? (
-                    <p className="task-card__empty">Aún no se asignaron recursos.</p>
-                  ) : (
+                  <div className="task-card__section">
+                    <h5>Recursos asignados</h5>
+                    {task.resources.length === 0 ? (
+                      <p className="task-card__empty">Aún no se asignaron recursos.</p>
+                    ) : (
                     <ul>
                       {task.resources.map((resource) => (
                         <li key={resource.id}>
@@ -435,9 +458,11 @@ const ProjectDetailPage = () => {
                           </div>
                           <div className="task-card__resource-actions">
                             <span>{formatCurrency(resource.cost)}</span>
-                            <button type="button" onClick={() => confirmResourceRemoval(task.id, resource.id)}>
-                              Quitar
-                            </button>
+                            {isManager && (
+                              <button type="button" onClick={() => confirmResourceRemoval(task.id, resource.id)}>
+                                Quitar
+                              </button>
+                            )}
                           </div>
                         </li>
                       ))}
@@ -470,31 +495,35 @@ const ProjectDetailPage = () => {
                   <button type="button" onClick={() => toggleTaskSection(task.id)}>
                     {isExpanded ? 'Cerrar gestión' : 'Gestionar tarea'}
                   </button>
-                  <button type="button" className="danger" onClick={() => confirmTaskDeletion(task)}>
-                    Eliminar tarea
-                  </button>
+                  {isManager && (
+                    <button type="button" className="danger" onClick={() => confirmTaskDeletion(task)}>
+                      Eliminar tarea
+                    </button>
+                  )}
                 </footer>
 
                 {isExpanded && (
                   <div className="task-card__management">
-                    <div>
-                      <h5>Actualizar colaboradores</h5>
-                      <div className="task-card__options">
-                        {collaborators.map((collaborator) => (
-                          <label key={collaborator.id}>
-                            <input
-                              type="checkbox"
-                              checked={collaboratorSelection.includes(collaborator.id)}
-                              onChange={() => handleCollaboratorToggle(task, collaborator.id)}
-                            />
-                            {collaborator.firstName} {collaborator.lastName} ({collaborator.role})
-                          </label>
-                        ))}
+                    {isManager && (
+                      <div>
+                        <h5>Actualizar colaboradores</h5>
+                        <div className="task-card__options">
+                          {collaborators.map((collaborator) => (
+                            <label key={collaborator.id}>
+                              <input
+                                type="checkbox"
+                                checked={collaboratorSelection.includes(collaborator.id)}
+                                onChange={() => handleCollaboratorToggle(task, collaborator.id)}
+                              />
+                              {collaborator.firstName} {collaborator.lastName} ({collaborator.role})
+                            </label>
+                          ))}
+                        </div>
+                        <button type="button" onClick={() => confirmCollaboratorUpdate(task)}>
+                          Confirmar colaboradores
+                        </button>
                       </div>
-                      <button type="button" onClick={() => confirmCollaboratorUpdate(task)}>
-                        Confirmar colaboradores
-                      </button>
-                    </div>
+                    )}
 
                     <div>
                       <h5>Actualizar estado</h5>
@@ -521,25 +550,27 @@ const ProjectDetailPage = () => {
                       </div>
                     </div>
 
-                    <div>
-                      <h5>Asignar recursos</h5>
-                      <div className="task-card__resources-form">
-                        <select
-                          value={resourceDrafts[task.id] ?? ''}
-                          onChange={(event) => prepareResourceAssignment(task, event.target.value)}
-                        >
-                          <option value="">Selecciona un recurso</option>
-                          {resources.map((resource) => (
-                            <option key={resource.id} value={resource.id}>
-                              {resource.name} ({formatCurrency(resource.cost)})
-                            </option>
-                          ))}
-                        </select>
-                        <button type="button" onClick={() => confirmResourceAssignment(task)}>
-                          Confirmar asignación
-                        </button>
+                    {isManager && (
+                      <div>
+                        <h5>Asignar recursos</h5>
+                        <div className="task-card__resources-form">
+                          <select
+                            value={resourceDrafts[task.id] ?? ''}
+                            onChange={(event) => prepareResourceAssignment(task, event.target.value)}
+                          >
+                            <option value="">Selecciona un recurso</option>
+                            {resources.map((resource) => (
+                              <option key={resource.id} value={resource.id}>
+                                {resource.name} ({formatCurrency(resource.cost)})
+                              </option>
+                            ))}
+                          </select>
+                          <button type="button" onClick={() => confirmResourceAssignment(task)}>
+                            Confirmar asignación
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div>
                       <h5>Gestionar documentación</h5>

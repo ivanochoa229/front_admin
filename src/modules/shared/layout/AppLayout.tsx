@@ -1,19 +1,26 @@
 import { NavLink, Outlet } from 'react-router-dom';
+
 import { useAuth } from '../../auth/AuthContext';
 import './AppLayout.css';
 
 const AppLayout = () => {
   const { user, logout } = useAuth();
+  const isManager = user?.role === 'Gestor de proyecto';
 
   return (
     <div className="app-layout">
       <header className="app-header">
         <div>
           <h1>Gestión de Proyectos</h1>
-          <span className="app-header__subtitle">Panel administrativo</span>
+          <span className="app-header__subtitle">
+            {isManager ? 'Panel administrativo' : 'Seguimiento de mis proyectos'}
+          </span>
         </div>
         <div className="app-header__user">
-          <span>{user?.name}</span>
+          <div className="app-header__user-info">
+            <span>{user?.name}</span>
+            <small>{user?.role}</small>
+          </div>
           <button type="button" onClick={logout}>
             Cerrar sesión
           </button>
@@ -24,11 +31,11 @@ const AppLayout = () => {
           <NavLink to="/" end>
             Inicio
           </NavLink>
-          <NavLink to="/projects">Proyectos</NavLink>
-          <NavLink to="/projects/new">Crear proyecto</NavLink>
-          <NavLink to="/teams">Equipos</NavLink>
-          <NavLink to="/reports">Reportes</NavLink>
-          <NavLink to="/users/register">Usuarios</NavLink>
+          <NavLink to="/projects">{isManager ? 'Proyectos' : 'Mis proyectos'}</NavLink>
+          {isManager && <NavLink to="/projects/new">Crear proyecto</NavLink>}
+          {isManager && <NavLink to="/teams">Equipos</NavLink>}
+          {isManager && <NavLink to="/reports">Reportes</NavLink>}
+          {isManager && <NavLink to="/users/register">Usuarios</NavLink>}
         </nav>
         <main className="app-content">
           <Outlet />

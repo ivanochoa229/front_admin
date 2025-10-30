@@ -24,11 +24,39 @@ const App = () => (
     >
       <Route index element={<DashboardPage />} />
       <Route path="projects" element={<ProjectsPage />} />
-      <Route path="projects/new" element={<CreateProjectPage />} />
+      <Route
+        path="projects/new"
+        element={
+          <ProtectedRoute allowedRoles={['Gestor de proyecto']}>
+            <CreateProjectPage />
+          </ProtectedRoute>
+        }
+      />
       <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-      <Route path="teams" element={<TeamsPage />} />
-      <Route path="reports" element={<ReportsPage />} />
-      <Route path="users/register" element={<RegisterUserPage />} />
+      <Route
+        path="teams"
+        element={
+          <ProtectedRoute allowedRoles={['Gestor de proyecto']}>
+            <TeamsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="reports"
+        element={
+          <ProtectedRoute allowedRoles={['Gestor de proyecto']}>
+            <ReportsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="users/register"
+        element={
+          <ProtectedRoute allowedRoles={['Gestor de proyecto']}>
+            <RegisterUserPage />
+          </ProtectedRoute>
+        }
+      />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>
