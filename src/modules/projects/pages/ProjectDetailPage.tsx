@@ -1,37 +1,266 @@
-import { useEffect, useState } from 'react';
+import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import projectService from '../../shared/services/projectService';
-import { Project } from '../../shared/types/project';
+import {
+  PriorityLevel,
+  Task,
+  TaskStatus
+} from '../../shared/types/project';
+import {
+  CreateTaskPayload,
+  useProjectManagement
+} from '../../shared/context/ProjectManagementContext';
+import { formatCurrency, getCollaboratorFullName } from '../../shared/utils/format';
 import StatusBadge from '../components/StatusBadge';
 import './ProjectDetailPage.css';
+
+const PRIORITY_LABELS: Record<PriorityLevel, string> = {
+  [PriorityLevel.Low]: 'Baja',
+  [PriorityLevel.Medium]: 'Media',
+  [PriorityLevel.High]: 'Alta',
+  [PriorityLevel.Critical]: 'Crítica'
+};
+
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  [TaskStatus.Pending]: 'Pendiente',
+  [TaskStatus.InProgress]: 'En curso',
+  [TaskStatus.InReview]: 'En revisión',
+  [TaskStatus.Completed]: 'Completada'
+};
+
+const EMPTY_TASK_FORM: CreateTaskPayload = {
+  name: '',
+  priority: PriorityLevel.Medium,
+  startDate: '',
+  dueDate: '',
+  description: ''
+};
 
 const ProjectDetailPage = () => {
   const navigate = useNavigate();
   const { projectId } = useParams();
-  const [project, setProject] = useState<Project | null>(null);
+  const {
+    projects,
+    collaborators,
+    resources,
+    createTask,
+    deleteTask,
+    setTaskCollaborators,
+    assignResourceToTask,
+    removeResourceFromTask,
+    addDocumentationToTask,
+    removeDocumentationFromTask,
+    updateTaskStatus
+  } = useProjectManagement();
 
-  useEffect(() => {
-    const loadProject = async () => {
-      if (!projectId) {
-        return;
-      }
+  const project = useMemo(() => projects.find((item) => item.id === projectId), [projects, projectId]);
 
-      const data = await projectService.getProjectById(projectId);
-      if (!data) {
-        navigate('/projects', { replace: true });
-        return;
-      }
-
-      setProject(data);
-    };
-
-    void loadProject();
-  }, [projectId, navigate]);
+  const [taskForm, setTaskForm] = useState<CreateTaskPayload>(EMPTY_TASK_FORM);
+  const [pendingTask, setPendingTask] = useState<CreateTaskPayload | null>(null);
+  const [taskMessage, setTaskMessage] = useState<string | null>(null);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [collaboratorDrafts, setCollaboratorDrafts] = useState<Record<string, string[]>>({});
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, { status: TaskStatus; note: string }>>({});
+  const [resourceDrafts, setResourceDrafts] = useState<Record<string, string>>({});
+  const [documentationDrafts, setDocumentationDrafts] = useState<Record<string, string[]>>({});
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (!project) {
-    return <p>Cargando información del proyecto...</p>;
+    return (
+      <div className="project-detail">
+        <p>No se encontró el proyecto solicitado.</p>
+        <button type="button" className="link" onClick={() => navigate('/projects')}>
+          Volver a proyectos
+        </button>
+      </div>
+    );
   }
+
+  const managerName = getCollaboratorFullName(collaborators, project.managerId);
+
+  const handleTaskFieldChange = (
+    event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = event.target;
+    setTaskForm((prev) => {
+      if (name === 'priority') {
+        return { ...prev, priority: value as PriorityLevel };
+      }
+
+      if (name === 'description') {
+        return { ...prev, description: value };
+      }
+
+      if (name === 'startDate' || name === 'dueDate' || name === 'name') {
+        return { ...prev, [name]: value } as CreateTaskPayload;
+      }
+
+      return prev;
+    });
+  };
+
+  const handleTaskSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    setTaskError(null);
+    setTaskMessage(null);
+
+    if (!taskForm.name.trim() || !taskForm.startDate || !taskForm.dueDate) {
+      setTaskError('Todos los campos de la tarea son obligatorios.');
+      return;
+    }
+
+    setPendingTask(taskForm);
+  };
+
+  const confirmTaskCreation = () => {
+    if (!pendingTask) {
+      return;
+    }
+
+    try {
+      createTask(project.id, pendingTask);
+      setTaskMessage(`La tarea "${pendingTask.name}" fue creada correctamente.`);
+      setPendingTask(null);
+      setTaskForm(EMPTY_TASK_FORM);
+    } catch (err) {
+      if (err instanceof Error) {
+        setTaskError(err.message);
+      } else {
+        setTaskError('No fue posible crear la tarea.');
+      }
+    }
+  };
+
+  const cancelTaskConfirmation = () => {
+    setPendingTask(null);
+  };
+
+  const toggleTaskSection = (taskId: string) => {
+    setExpandedTaskId((current) => (current === taskId ? null : taskId));
+    setActionError(null);
+    setActionFeedback(null);
+  };
+
+  const handleCollaboratorToggle = (task: Task, collaboratorId: string) => {
+    setCollaboratorDrafts((prev) => {
+      const current = prev[task.id] ?? task.assigneeIds;
+      const exists = current.includes(collaboratorId);
+      const updated = exists
+        ? current.filter((id) => id !== collaboratorId)
+        : [...current, collaboratorId];
+      return { ...prev, [task.id]: updated };
+    });
+  };
+
+  const confirmCollaboratorUpdate = (task: Task) => {
+    const selected = collaboratorDrafts[task.id] ?? task.assigneeIds;
+    setTaskCollaborators(project.id, task.id, selected);
+    setActionError(null);
+    setActionFeedback('Colaboradores actualizados correctamente.');
+  };
+
+  const handleStatusDraftChange = (task: Task, field: 'status' | 'note', value: string) => {
+    setStatusDrafts((prev) => ({
+      ...prev,
+      [task.id]: {
+        status: field === 'status' ? (value as TaskStatus) : prev[task.id]?.status ?? task.status,
+        note: field === 'note' ? value : prev[task.id]?.note ?? ''
+      }
+    }));
+  };
+
+  const confirmStatusUpdate = (task: Task) => {
+    const draft = statusDrafts[task.id];
+    if (!draft) {
+      setActionError('Selecciona un nuevo estado y describe el avance antes de confirmar.');
+      return;
+    }
+
+    try {
+      updateTaskStatus(project.id, task.id, draft.status, draft.note);
+      setActionFeedback('El estado de la tarea se actualizó correctamente.');
+      setActionError(null);
+      setStatusDrafts((prev) => ({ ...prev, [task.id]: { status: draft.status, note: '' } }));
+    } catch (err) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('No se pudo actualizar el estado.');
+      }
+    }
+  };
+
+  const prepareResourceAssignment = (task: Task, resourceId: string) => {
+    setResourceDrafts((prev) => ({ ...prev, [task.id]: resourceId }));
+  };
+
+  const confirmResourceAssignment = (task: Task) => {
+    const resourceId = resourceDrafts[task.id];
+    if (!resourceId) {
+      setActionError('Selecciona un recurso para asignar.');
+      return;
+    }
+
+    try {
+      assignResourceToTask(project.id, task.id, resourceId);
+      setActionFeedback('Recurso asignado y presupuesto actualizado.');
+      setActionError(null);
+      setResourceDrafts((prev) => ({ ...prev, [task.id]: '' }));
+    } catch (err) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('No se pudo asignar el recurso.');
+      }
+    }
+  };
+
+  const confirmResourceRemoval = (taskId: string, assignmentId: string) => {
+    removeResourceFromTask(project.id, taskId, assignmentId);
+    setActionError(null);
+    setActionFeedback('El recurso se eliminó de la tarea.');
+  };
+
+  const handleDocumentationSelection = (taskId: string, event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) {
+      return;
+    }
+
+    setDocumentationDrafts((prev) => ({
+      ...prev,
+      [taskId]: files.map((file) => file.name)
+    }));
+  };
+
+  const confirmDocumentationUpload = (taskId: string) => {
+    const files = documentationDrafts[taskId];
+    if (!files || files.length === 0) {
+      setActionError('Selecciona al menos un archivo para adjuntar.');
+      return;
+    }
+
+    addDocumentationToTask(project.id, taskId, files);
+    setDocumentationDrafts((prev) => ({ ...prev, [taskId]: [] }));
+    setActionError(null);
+    setActionFeedback('Documentación añadida correctamente.');
+  };
+
+  const confirmDocumentRemoval = (taskId: string, documentId: string) => {
+    removeDocumentationFromTask(project.id, taskId, documentId);
+    setActionError(null);
+    setActionFeedback('Documento eliminado.');
+  };
+
+  const confirmTaskDeletion = (task: Task) => {
+    if (window.confirm('¿Seguro que deseas eliminar la tarea seleccionada?')) {
+      deleteTask(project.id, task.id);
+      setActionError(null);
+      setActionFeedback('La tarea fue eliminada correctamente.');
+    }
+  };
 
   return (
     <div className="project-detail">
@@ -48,7 +277,7 @@ const ProjectDetailPage = () => {
         <div className="project-detail__grid">
           <div>
             <span>Gestor responsable</span>
-            <strong>{project.manager}</strong>
+            <strong>{managerName}</strong>
           </div>
           <div>
             <span>Fechas</span>
@@ -57,19 +286,290 @@ const ProjectDetailPage = () => {
             </strong>
           </div>
           <div>
-            <span>Progreso actual</span>
-            <strong>{project.progress}%</strong>
+            <span>Prioridad</span>
+            <strong>{PRIORITY_LABELS[project.priority]}</strong>
+          </div>
+          <div>
+            <span>Presupuesto utilizado</span>
+            <strong>
+              {formatCurrency(project.usedBudget)} / {formatCurrency(project.budget)}
+            </strong>
           </div>
         </div>
       </section>
 
       <section className="project-detail__section">
-        <h3>Equipo asignado</h3>
-        <ul>
-          {project.team.map((member) => (
-            <li key={member}>{member}</li>
-          ))}
-        </ul>
+        <h3>Registrar nueva tarea</h3>
+        <form className="task-form" onSubmit={handleTaskSubmit}>
+          <div className="task-form__grid">
+            <label>
+              Nombre
+              <input name="name" value={taskForm.name} onChange={handleTaskFieldChange} required />
+            </label>
+            <label>
+              Prioridad
+              <select name="priority" value={taskForm.priority} onChange={handleTaskFieldChange}>
+                {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Fecha inicio
+              <input type="date" name="startDate" value={taskForm.startDate} onChange={handleTaskFieldChange} required />
+            </label>
+            <label>
+              Fecha estimada
+              <input type="date" name="dueDate" value={taskForm.dueDate} onChange={handleTaskFieldChange} required />
+            </label>
+          </div>
+          <label className="task-form__description">
+            Descripción
+            <textarea
+              name="description"
+              value={taskForm.description}
+              onChange={handleTaskFieldChange}
+              rows={3}
+              placeholder="Describe brevemente el alcance de la tarea"
+            />
+          </label>
+          <div className="task-form__actions">
+            <button type="submit">Validar datos</button>
+          </div>
+        </form>
+        {taskError && <div className="alert alert--error">{taskError}</div>}
+        {taskMessage && <div className="alert alert--success">{taskMessage}</div>}
+
+        {pendingTask && (
+          <div className="task-confirmation">
+            <h4>Confirmar creación de tarea</h4>
+            <ul>
+              <li>
+                <strong>Nombre:</strong> {pendingTask.name}
+              </li>
+              <li>
+                <strong>Prioridad:</strong> {PRIORITY_LABELS[pendingTask.priority]}
+              </li>
+              <li>
+                <strong>Fechas:</strong> {pendingTask.startDate} → {pendingTask.dueDate}
+              </li>
+              <li>
+                <strong>Descripción:</strong> {pendingTask.description || 'Sin descripción'}
+              </li>
+            </ul>
+            <div className="task-form__actions">
+              <button type="button" className="secondary" onClick={cancelTaskConfirmation}>
+                Editar
+              </button>
+              <button type="button" onClick={confirmTaskCreation}>
+                Confirmar creación
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="project-detail__section">
+        <div className="project-detail__section-header">
+          <h3>Tareas del proyecto</h3>
+          <span>{project.tasks.length} registradas</span>
+        </div>
+
+        {actionFeedback && <div className="alert alert--success">{actionFeedback}</div>}
+        {actionError && <div className="alert alert--error">{actionError}</div>}
+
+        <div className="task-list">
+          {project.tasks.length === 0 && <p className="task-card__empty">Aún no se registraron tareas para este proyecto.</p>}
+          {project.tasks.map((task) => {
+            const collaboratorSelection = collaboratorDrafts[task.id] ?? task.assigneeIds;
+            const statusDraft = statusDrafts[task.id];
+            const pendingDocs = documentationDrafts[task.id] ?? [];
+            const isExpanded = expandedTaskId === task.id;
+
+            return (
+              <article key={task.id} className="task-card">
+                <header>
+                  <div>
+                    <h4>{task.name}</h4>
+                    <span className={`priority priority--${task.priority.toLowerCase()}`}>
+                      {PRIORITY_LABELS[task.priority]}
+                    </span>
+                  </div>
+                  <div className="task-card__meta">
+                    <span>Estado: {STATUS_LABELS[task.status]}</span>
+                    <span>
+                      Fechas: {new Date(task.startDate).toLocaleDateString()} →{' '}
+                      {new Date(task.dueDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                </header>
+
+                <p>{task.description || 'Sin descripción registrada.'}</p>
+
+                <div className="task-card__section">
+                  <h5>Colaboradores</h5>
+                  {task.assigneeIds.length === 0 ? (
+                    <p className="task-card__empty">Sin colaboradores asignados.</p>
+                  ) : (
+                    <ul>
+                      {task.assigneeIds.map((id) => (
+                        <li key={id}>{getCollaboratorFullName(collaborators, id)}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="task-card__section">
+                  <h5>Recursos asignados</h5>
+                  {task.resources.length === 0 ? (
+                    <p className="task-card__empty">Aún no se asignaron recursos.</p>
+                  ) : (
+                    <ul>
+                      {task.resources.map((resource) => (
+                        <li key={resource.id}>
+                          <div>
+                            <strong>{resource.name}</strong>
+                            <span>{new Date(resource.assignedAt).toLocaleString()}</span>
+                          </div>
+                          <div className="task-card__resource-actions">
+                            <span>{formatCurrency(resource.cost)}</span>
+                            <button type="button" onClick={() => confirmResourceRemoval(task.id, resource.id)}>
+                              Quitar
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="task-card__section">
+                  <h5>Documentación</h5>
+                  {task.documentation.length === 0 ? (
+                    <p className="task-card__empty">No se adjuntaron documentos.</p>
+                  ) : (
+                    <ul>
+                      {task.documentation.map((document) => (
+                        <li key={document.id}>
+                          <div>
+                            <strong>{document.name}</strong>
+                            <span>{new Date(document.uploadedAt).toLocaleString()}</span>
+                          </div>
+                          <button type="button" onClick={() => confirmDocumentRemoval(task.id, document.id)}>
+                            Eliminar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <footer className="task-card__actions">
+                  <button type="button" onClick={() => toggleTaskSection(task.id)}>
+                    {isExpanded ? 'Cerrar gestión' : 'Gestionar tarea'}
+                  </button>
+                  <button type="button" className="danger" onClick={() => confirmTaskDeletion(task)}>
+                    Eliminar tarea
+                  </button>
+                </footer>
+
+                {isExpanded && (
+                  <div className="task-card__management">
+                    <div>
+                      <h5>Actualizar colaboradores</h5>
+                      <div className="task-card__options">
+                        {collaborators.map((collaborator) => (
+                          <label key={collaborator.id}>
+                            <input
+                              type="checkbox"
+                              checked={collaboratorSelection.includes(collaborator.id)}
+                              onChange={() => handleCollaboratorToggle(task, collaborator.id)}
+                            />
+                            {collaborator.firstName} {collaborator.lastName} ({collaborator.role})
+                          </label>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => confirmCollaboratorUpdate(task)}>
+                        Confirmar colaboradores
+                      </button>
+                    </div>
+
+                    <div>
+                      <h5>Actualizar estado</h5>
+                      <div className="task-card__status">
+                        <select
+                          value={statusDraft?.status ?? task.status}
+                          onChange={(event) => handleStatusDraftChange(task, 'status', event.target.value)}
+                        >
+                          {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        <textarea
+                          placeholder="Describe el avance registrado"
+                          value={statusDraft?.note ?? ''}
+                          onChange={(event) => handleStatusDraftChange(task, 'note', event.target.value)}
+                          rows={2}
+                        />
+                        <button type="button" onClick={() => confirmStatusUpdate(task)}>
+                          Confirmar actualización
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h5>Asignar recursos</h5>
+                      <div className="task-card__resources-form">
+                        <select
+                          value={resourceDrafts[task.id] ?? ''}
+                          onChange={(event) => prepareResourceAssignment(task, event.target.value)}
+                        >
+                          <option value="">Selecciona un recurso</option>
+                          {resources.map((resource) => (
+                            <option key={resource.id} value={resource.id}>
+                              {resource.name} ({formatCurrency(resource.cost)})
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => confirmResourceAssignment(task)}>
+                          Confirmar asignación
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h5>Gestionar documentación</h5>
+                      <div className="task-card__documents">
+                        <input
+                          type="file"
+                          multiple
+                          onChange={(event) => handleDocumentationSelection(task.id, event)}
+                        />
+                        {pendingDocs.length > 0 && (
+                          <div className="task-card__pending-docs">
+                            <span>Archivos seleccionados:</span>
+                            <ul>
+                              {pendingDocs.map((name) => (
+                                <li key={name}>{name}</li>
+                              ))}
+                            </ul>
+                            <button type="button" onClick={() => confirmDocumentationUpload(task.id)}>
+                              Confirmar carga
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
       </section>
     </div>
   );

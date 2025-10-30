@@ -32,6 +32,19 @@
   line-height: 1.5;
 }
 
+.project-summary__budget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.project-summary__budget strong {
+  font-size: 1rem;
+  color: #0f2a47;
+}
+
 .project-summary__progress {
   display: grid;
   grid-template-columns: auto 1fr auto;

@@ -1,5 +1,4 @@
 import { NavLink, Outlet } from 'react-router-dom';
-
 import { useAuth } from '../../auth/AuthContext';
 import './AppLayout.css';
 
@@ -26,7 +25,10 @@ const AppLayout = () => {
             Inicio
           </NavLink>
           <NavLink to="/projects">Proyectos</NavLink>
+          <NavLink to="/projects/new">Crear proyecto</NavLink>
           <NavLink to="/teams">Equipos</NavLink>
+          <NavLink to="/reports">Reportes</NavLink>
+          <NavLink to="/users/register">Usuarios</NavLink>
         </nav>
         <main className="app-content">
           <Outlet />

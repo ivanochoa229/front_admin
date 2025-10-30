@@ -1,57 +1,86 @@
+import { useMemo } from 'react';
+
+import { useProjectManagement } from '../../shared/context/ProjectManagementContext';
+import { PriorityLevel } from '../../shared/types/project';
+import { getCollaboratorFullName } from '../../shared/utils/format';
 import './TeamsPage.css';
 
-const TEAMS = [
-  {
-    name: 'Innovación Digital',
-    lead: 'María López',
-    members: ['María López', 'Carlos Pérez', 'Ana Gómez', 'Diego Torres'],
-    focus: 'Implementación de nuevas soluciones tecnológicas y automatización de procesos.'
-  },
-  {
-    name: 'Experiencia de Cliente',
-    lead: 'Luis Rodríguez',
-    members: ['Luis Rodríguez', 'Sandra Díaz', 'Pedro Fernández'],
-    focus: 'Optimización de la experiencia omnicanal y aplicaciones móviles.'
-  },
-  {
-    name: 'Operaciones Cloud',
-    lead: 'Laura Martínez',
-    members: ['Laura Martínez', 'Elena García', 'Javier Morales'],
-    focus: 'Migración y gobernanza de la infraestructura en la nube.'
-  }
-];
+const PRIORITY_LABELS: Record<PriorityLevel, string> = {
+  [PriorityLevel.Low]: 'Baja',
+  [PriorityLevel.Medium]: 'Media',
+  [PriorityLevel.High]: 'Alta',
+  [PriorityLevel.Critical]: 'Crítica'
+};
 
-const TeamsPage = () => (
-  <div className="teams-page">
-    <header>
-      <h2>Equipos de trabajo</h2>
-      <p>
-        Conoce a los equipos que lideran las iniciativas estratégicas. Una integración con el backend
-        permitirá administrar roles y miembros próximamente.
-      </p>
-    </header>
+const TeamsPage = () => {
+  const { projects, collaborators } = useProjectManagement();
 
-    <div className="teams-page__grid">
-      {TEAMS.map((team) => (
-        <article key={team.name} className="teams-card">
-          <h3>{team.name}</h3>
-          <p className="teams-card__focus">{team.focus}</p>
-          <div className="teams-card__lead">
-            <span>Team lead</span>
-            <strong>{team.lead}</strong>
-          </div>
-          <div>
-            <span>Integrantes</span>
-            <ul>
-              {team.members.map((member) => (
-                <li key={member}>{member}</li>
-              ))}
-            </ul>
-          </div>
-        </article>
-      ))}
+  const collaboratorsByRole = useMemo(
+    () =>
+      collaborators.reduce(
+        (acc, collaborator) => {
+          acc[collaborator.role] = [...(acc[collaborator.role] ?? []), collaborator];
+          return acc;
+        },
+        {} as Record<string, typeof collaborators>
+      ),
+    [collaborators]
+  );
+
+  return (
+    <div className="teams-page">
+      <header>
+        <h2>Equipos de trabajo</h2>
+        <p>Consulta los colaboradores disponibles y la composición de los equipos por proyecto.</p>
+      </header>
+
+      <section className="teams-page__section">
+        <h3>Colaboradores registrados</h3>
+        <div className="teams-page__grid">
+          {Object.entries(collaboratorsByRole).map(([role, members]) => (
+            <article key={role} className="teams-card">
+              <h4>{role}</h4>
+              <span className="teams-card__count">{members.length} integrantes</span>
+              <ul>
+                {members.map((member) => (
+                  <li key={member.id}>
+                    <strong>
+                      {member.firstName} {member.lastName}
+                    </strong>
+                    <span>{member.email}</span>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="teams-page__section">
+        <h3>Equipos por proyecto</h3>
+        <div className="teams-page__grid">
+          {projects.map((project) => (
+            <article key={project.id} className="teams-card">
+              <h4>{project.name}</h4>
+              <p className="teams-card__focus">Prioridad {PRIORITY_LABELS[project.priority]}</p>
+              <div className="teams-card__lead">
+                <span>Gestor</span>
+                <strong>{getCollaboratorFullName(collaborators, project.managerId)}</strong>
+              </div>
+              <div>
+                <span>Integrantes</span>
+                <ul>
+                  {project.teamIds.map((memberId) => (
+                    <li key={memberId}>{getCollaboratorFullName(collaborators, memberId)}</li>
+                  ))}
+                </ul>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
     </div>
-  </div>
-);
+  );
+};
 
 export default TeamsPage;
