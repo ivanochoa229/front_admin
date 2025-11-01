@@ -12,12 +12,11 @@ import './ProjectsPage.css';
 const PRIORITY_LABELS: Record<PriorityLevel, string> = {
   [PriorityLevel.Low]: 'Baja',
   [PriorityLevel.Medium]: 'Media',
-  [PriorityLevel.High]: 'Alta',
-  [PriorityLevel.Critical]: 'Crítica'
+  [PriorityLevel.High]: 'Alta'
 };
 
 const ProjectsPage = () => {
-  const { projects, collaborators } = useProjectManagement();
+  const { projects, collaborators, isLoading, error } = useProjectManagement();
   const { user } = useAuth();
   const isManager = user?.role === 'Gestor de proyecto';
   const headerTitle = isManager ? 'Proyectos' : 'Mis proyectos';
@@ -65,6 +64,10 @@ const ProjectsPage = () => {
       </header>
 
       <div className="projects-table__wrapper">
+        {error && <div className="projects-page__alert">{error}</div>}
+        {isLoading && projects.length === 0 ? (
+          <p>Cargando proyectos...</p>
+        ) : (
         <table className="projects-table">
           <thead>
             <tr>
@@ -115,6 +118,7 @@ const ProjectsPage = () => {
             ))}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );

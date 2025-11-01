@@ -6,6 +6,7 @@ import './AppLayout.css';
 const AppLayout = () => {
   const { user, logout } = useAuth();
   const isManager = user?.role === 'Gestor de proyecto';
+  const displayName = user ? `${user.firstName} ${user.lastName}` : '';
 
   return (
     <div className="app-layout">
@@ -18,7 +19,7 @@ const AppLayout = () => {
         </div>
         <div className="app-header__user">
           <div className="app-header__user-info">
-            <span>{user?.name}</span>
+            <span>{displayName}</span>
             <small>{user?.role}</small>
           </div>
           <button type="button" onClick={logout}>

@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth/AuthContext';
@@ -15,12 +15,12 @@ import { canUserAccessProject, getTasksVisibleToUser } from '../../shared/utils/
 import { formatCurrency, getCollaboratorFullName } from '../../shared/utils/format';
 import StatusBadge from '../components/StatusBadge';
 import './ProjectDetailPage.css';
+import useDismissOnInteraction from '../../shared/hooks/useDismissOnInteraction';
 
 const PRIORITY_LABELS: Record<PriorityLevel, string> = {
   [PriorityLevel.Low]: 'Baja',
   [PriorityLevel.Medium]: 'Media',
-  [PriorityLevel.High]: 'Alta',
-  [PriorityLevel.Critical]: 'Crítica'
+  [PriorityLevel.High]: 'Alta'
 };
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -52,7 +52,9 @@ const ProjectDetailPage = () => {
     removeResourceFromTask,
     addDocumentationToTask,
     removeDocumentationFromTask,
-    updateTaskStatus
+    updateTaskStatus,
+    loadProject,
+    isLoading
   } = useProjectManagement();
   const { user } = useAuth();
 
@@ -68,10 +70,28 @@ const ProjectDetailPage = () => {
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [collaboratorDrafts, setCollaboratorDrafts] = useState<Record<string, string[]>>({});
   const [statusDrafts, setStatusDrafts] = useState<Record<string, { status: TaskStatus; note: string }>>({});
-  const [resourceDrafts, setResourceDrafts] = useState<Record<string, string>>({});
-  const [documentationDrafts, setDocumentationDrafts] = useState<Record<string, string[]>>({});
+  const [resourceDrafts, setResourceDrafts] = useState<Record<string, { resourceId: string; quantity: string }>>({});
+  const [documentationDrafts, setDocumentationDrafts] = useState<Record<string, File[]>>({});
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const dismissFeedback = useCallback(() => {
+    setTaskMessage(null);
+    setTaskError(null);
+    setActionFeedback(null);
+    setActionError(null);
+  }, []);
+
+  const hasFeedback = Boolean(taskMessage || taskError || actionFeedback || actionError);
+  useDismissOnInteraction(hasFeedback, dismissFeedback);
+
+  if (isLoading && !project) {
+    return (
+      <div className="project-detail">
+        <p>Cargando información del proyecto...</p>
+      </div>
+    );
+  }
 
   if (!project) {
     return (
@@ -135,13 +155,19 @@ const ProjectDetailPage = () => {
     setPendingTask(taskForm);
   };
 
-  const confirmTaskCreation = () => {
+  useEffect(() => {
+    if (projectId) {
+      loadProject(projectId);
+    }
+  }, [projectId, loadProject]);
+
+  const confirmTaskCreation = async () => {
     if (!pendingTask) {
       return;
     }
 
     try {
-      createTask(project.id, pendingTask);
+      await createTask(project.id, pendingTask);
       setTaskMessage(`La tarea "${pendingTask.name}" fue creada correctamente.`);
       setPendingTask(null);
       setTaskForm(EMPTY_TASK_FORM);
@@ -175,11 +201,19 @@ const ProjectDetailPage = () => {
     });
   };
 
-  const confirmCollaboratorUpdate = (task: Task) => {
+  const confirmCollaboratorUpdate = async (task: Task) => {
     const selected = collaboratorDrafts[task.id] ?? task.assigneeIds;
-    setTaskCollaborators(project.id, task.id, selected);
-    setActionError(null);
-    setActionFeedback('Colaboradores actualizados correctamente.');
+    try {
+      await setTaskCollaborators(project.id, task.id, selected);
+      setActionError(null);
+      setActionFeedback('Colaboradores actualizados correctamente.');
+    } catch (err) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('No se pudieron actualizar los colaboradores.');
+      }
+    }
   };
 
   const handleStatusDraftChange = (task: Task, field: 'status' | 'note', value: string) => {
@@ -192,7 +226,7 @@ const ProjectDetailPage = () => {
     }));
   };
 
-  const confirmStatusUpdate = (task: Task) => {
+  const confirmStatusUpdate = async (task: Task) => {
     const draft = statusDrafts[task.id];
     if (!draft) {
       setActionError('Selecciona un nuevo estado y describe el avance antes de confirmar.');
@@ -200,7 +234,7 @@ const ProjectDetailPage = () => {
     }
 
     try {
-      updateTaskStatus(project.id, task.id, draft.status, draft.note);
+      await updateTaskStatus(project.id, task.id, draft.status, draft.note);
       setActionFeedback('El estado de la tarea se actualizó correctamente.');
       setActionError(null);
       setStatusDrafts((prev) => ({ ...prev, [task.id]: { status: draft.status, note: '' } }));
@@ -214,21 +248,46 @@ const ProjectDetailPage = () => {
   };
 
   const prepareResourceAssignment = (task: Task, resourceId: string) => {
-    setResourceDrafts((prev) => ({ ...prev, [task.id]: resourceId }));
+    setResourceDrafts((prev) => ({
+      ...prev,
+      [task.id]: {
+        resourceId,
+        quantity: prev[task.id]?.quantity ?? '1'
+      }
+    }));
   };
 
-  const confirmResourceAssignment = (task: Task) => {
-    const resourceId = resourceDrafts[task.id];
-    if (!resourceId) {
+  const handleResourceQuantityChange = (taskId: string, quantity: string) => {
+    setResourceDrafts((prev) => ({
+      ...prev,
+      [taskId]: {
+        resourceId: prev[taskId]?.resourceId ?? '',
+        quantity
+      }
+    }));
+  };
+
+  const confirmResourceAssignment = async (task: Task) => {
+    const draft = resourceDrafts[task.id];
+    if (!draft?.resourceId) {
       setActionError('Selecciona un recurso para asignar.');
       return;
     }
 
+    const parsedQuantity = Number(draft.quantity);
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+      setActionError('Ingresa una cantidad válida mayor a cero.');
+      return;
+    }
+
     try {
-      assignResourceToTask(project.id, task.id, resourceId);
+      await assignResourceToTask(project.id, task.id, draft.resourceId, parsedQuantity);
       setActionFeedback('Recurso asignado y presupuesto actualizado.');
       setActionError(null);
-      setResourceDrafts((prev) => ({ ...prev, [task.id]: '' }));
+      setResourceDrafts((prev) => ({
+        ...prev,
+        [task.id]: { resourceId: '', quantity: '1' }
+      }));
     } catch (err) {
       if (err instanceof Error) {
         setActionError(err.message);
@@ -238,10 +297,18 @@ const ProjectDetailPage = () => {
     }
   };
 
-  const confirmResourceRemoval = (taskId: string, assignmentId: string) => {
-    removeResourceFromTask(project.id, taskId, assignmentId);
-    setActionError(null);
-    setActionFeedback('El recurso se eliminó de la tarea.');
+  const confirmResourceRemoval = async (taskId: string, assignmentId: string) => {
+    try {
+      await removeResourceFromTask(project.id, taskId, assignmentId);
+      setActionError(null);
+      setActionFeedback('El recurso se eliminó de la tarea.');
+    } catch (err) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('No se pudo eliminar el recurso.');
+      }
+    }
   };
 
   const handleDocumentationSelection = (taskId: string, event: ChangeEvent<HTMLInputElement>) => {
@@ -250,36 +317,80 @@ const ProjectDetailPage = () => {
       return;
     }
 
-    setDocumentationDrafts((prev) => ({
-      ...prev,
-      [taskId]: files.map((file) => file.name)
-    }));
+    setActionError(null);
+    setActionFeedback(null);
+
+    setDocumentationDrafts((prev) => {
+      const existing = prev[taskId] ?? [];
+      const combined = [...existing, ...files];
+      const unique = combined.filter((file, index, array) => {
+        const identifier = `${file.name}-${file.size}-${file.lastModified}`;
+        return (
+          array.findIndex(
+            (candidate) =>
+              `${candidate.name}-${candidate.size}-${candidate.lastModified}` === identifier
+          ) === index
+        );
+      });
+
+      return {
+        ...prev,
+        [taskId]: unique
+      };
+    });
+
+    event.target.value = '';
   };
 
-  const confirmDocumentationUpload = (taskId: string) => {
+  const confirmDocumentationUpload = async (taskId: string) => {
     const files = documentationDrafts[taskId];
     if (!files || files.length === 0) {
       setActionError('Selecciona al menos un archivo para adjuntar.');
       return;
     }
 
-    addDocumentationToTask(project.id, taskId, files);
-    setDocumentationDrafts((prev) => ({ ...prev, [taskId]: [] }));
-    setActionError(null);
-    setActionFeedback('Documentación añadida correctamente.');
-  };
-
-  const confirmDocumentRemoval = (taskId: string, documentId: string) => {
-    removeDocumentationFromTask(project.id, taskId, documentId);
-    setActionError(null);
-    setActionFeedback('Documento eliminado.');
-  };
-
-  const confirmTaskDeletion = (task: Task) => {
-    if (window.confirm('¿Seguro que deseas eliminar la tarea seleccionada?')) {
-      deleteTask(project.id, task.id);
+    try {
       setActionError(null);
-      setActionFeedback('La tarea fue eliminada correctamente.');
+      setActionFeedback(null);
+      await addDocumentationToTask(project.id, taskId, files);
+      setDocumentationDrafts((prev) => ({ ...prev, [taskId]: [] }));
+      setActionFeedback('Documentación añadida correctamente.');
+    } catch (err) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('No se pudo adjuntar la documentación.');
+      }
+    }
+  };
+
+  const confirmDocumentRemoval = async (taskId: string, documentId: string) => {
+    try {
+      await removeDocumentationFromTask(project.id, taskId, documentId);
+      setActionError(null);
+      setActionFeedback('Documento eliminado.');
+    } catch (err) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('No se pudo eliminar el documento.');
+      }
+    }
+  };
+
+  const confirmTaskDeletion = async (task: Task) => {
+    if (window.confirm('¿Seguro que deseas eliminar la tarea seleccionada?')) {
+      try {
+        await deleteTask(project.id, task.id);
+        setActionError(null);
+        setActionFeedback('La tarea fue eliminada correctamente.');
+      } catch (err) {
+        if (err instanceof Error) {
+          setActionError(err.message);
+        } else {
+          setActionError('No se pudo eliminar la tarea.');
+        }
+      }
     }
   };
 
@@ -454,6 +565,10 @@ const ProjectDetailPage = () => {
                         <li key={resource.id}>
                           <div>
                             <strong>{resource.name}</strong>
+                            <span>
+                              {resource.quantity} unidad{resource.quantity === 1 ? '' : 'es'} •{' '}
+                              {formatCurrency(resource.unitCost)} c/u
+                            </span>
                             <span>{new Date(resource.assignedAt).toLocaleString()}</span>
                           </div>
                           <div className="task-card__resource-actions">
@@ -555,7 +670,7 @@ const ProjectDetailPage = () => {
                         <h5>Asignar recursos</h5>
                         <div className="task-card__resources-form">
                           <select
-                            value={resourceDrafts[task.id] ?? ''}
+                            value={resourceDrafts[task.id]?.resourceId ?? ''}
                             onChange={(event) => prepareResourceAssignment(task, event.target.value)}
                           >
                             <option value="">Selecciona un recurso</option>
@@ -565,6 +680,13 @@ const ProjectDetailPage = () => {
                               </option>
                             ))}
                           </select>
+                          <input
+                            type="number"
+                            min={1}
+                            value={resourceDrafts[task.id]?.quantity ?? '1'}
+                            onChange={(event) => handleResourceQuantityChange(task.id, event.target.value)}
+                            placeholder="Cantidad"
+                          />
                           <button type="button" onClick={() => confirmResourceAssignment(task)}>
                             Confirmar asignación
                           </button>
@@ -584,8 +706,10 @@ const ProjectDetailPage = () => {
                           <div className="task-card__pending-docs">
                             <span>Archivos seleccionados:</span>
                             <ul>
-                              {pendingDocs.map((name) => (
-                                <li key={name}>{name}</li>
+                              {pendingDocs.map((file) => (
+                                <li key={`${file.name}-${file.size}-${file.lastModified}`}>
+                                  {file.name}
+                                </li>
                               ))}
                             </ul>
                             <button type="button" onClick={() => confirmDocumentationUpload(task.id)}>

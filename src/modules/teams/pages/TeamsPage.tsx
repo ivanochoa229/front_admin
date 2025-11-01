@@ -1,31 +1,34 @@
 import { useMemo } from 'react';
 
 import { useProjectManagement } from '../../shared/context/ProjectManagementContext';
-import { PriorityLevel } from '../../shared/types/project';
+import { Collaborator, PriorityLevel } from '../../shared/types/project';
 import { getCollaboratorFullName } from '../../shared/utils/format';
 import './TeamsPage.css';
 
 const PRIORITY_LABELS: Record<PriorityLevel, string> = {
   [PriorityLevel.Low]: 'Baja',
   [PriorityLevel.Medium]: 'Media',
-  [PriorityLevel.High]: 'Alta',
-  [PriorityLevel.Critical]: 'Crítica'
+  [PriorityLevel.High]: 'Alta'
 };
 
 const TeamsPage = () => {
-  const { projects, collaborators } = useProjectManagement();
+  const { projects, collaborators, isLoading, error } = useProjectManagement();
 
-  const collaboratorsByRole = useMemo(
-    () =>
-      collaborators.reduce(
-        (acc, collaborator) => {
-          acc[collaborator.role] = [...(acc[collaborator.role] ?? []), collaborator];
-          return acc;
-        },
-        {} as Record<string, typeof collaborators>
-      ),
-    [collaborators]
-  );
+  const collaboratorsByRole = useMemo<Record<string, Collaborator[]>>(() => {
+    return collaborators.reduce((acc, collaborator) => {
+      const key = collaborator.role;
+      acc[key] = [...(acc[key] ?? []), collaborator];
+      return acc;
+    }, {} as Record<string, Collaborator[]>);
+  }, [collaborators]);
+
+  if (isLoading && projects.length === 0 && collaborators.length === 0) {
+    return (
+      <div className="teams-page">
+        <p>Cargando equipos y colaboradores...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="teams-page">
@@ -33,6 +36,8 @@ const TeamsPage = () => {
         <h2>Equipos de trabajo</h2>
         <p>Consulta los colaboradores disponibles y la composición de los equipos por proyecto.</p>
       </header>
+
+      {error && <div className="teams-page__alert">{error}</div>}
 
       <section className="teams-page__section">
         <h3>Colaboradores registrados</h3>

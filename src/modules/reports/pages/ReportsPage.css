@@ -4,6 +4,13 @@
   gap: 1.5rem;
 }
 
+.reports__alert {
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .reports__header h2 {
   margin: 0;
   font-size: 1.8rem;
@@ -45,6 +52,11 @@
   padding-left: 1.1rem;
   display: grid;
   gap: 0.5rem;
+}
+
+.reports__section ul li small {
+  display: block;
+  color: #64748b;
 }
 
 .reports__empty {

@@ -1,5 +1,16 @@
-import { createContext, ReactNode, useContext, useState } from 'react';
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState
+} from 'react';
+import { isAxiosError } from 'axios';
 
+import { useAuth } from '../../auth/AuthContext';
+import { apiClient, withAuthorization } from '../services/apiClient';
 import {
   Collaborator,
   CollaboratorRole,
@@ -13,299 +24,7 @@ import {
   TaskProgressNote,
   TaskStatus
 } from '../types/project';
-
-const generateId = (prefix: string) => {
-  const randomId =
-    typeof globalThis !== 'undefined' && 'crypto' in globalThis && typeof globalThis.crypto.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-
-  return `${prefix}-${randomId}`;
-};
-
-const INITIAL_COLLABORATORS: Collaborator[] = [
-  {
-    id: 'col-1',
-    firstName: 'María',
-    lastName: 'López',
-    email: 'maria.lopez@empresa.com',
-    phone: '+54 11 5550-1001',
-    role: 'Gestor de proyecto'
-  },
-  {
-    id: 'col-2',
-    firstName: 'Carlos',
-    lastName: 'Pérez',
-    email: 'carlos.perez@empresa.com',
-    phone: '+54 11 5550-1002',
-    role: 'Colaborador'
-  },
-  {
-    id: 'col-3',
-    firstName: 'Ana',
-    lastName: 'Gómez',
-    email: 'ana.gomez@empresa.com',
-    phone: '+54 11 5550-1003',
-    role: 'Colaborador'
-  },
-  {
-    id: 'col-4',
-    firstName: 'Luis',
-    lastName: 'Rodríguez',
-    email: 'luis.rodriguez@empresa.com',
-    phone: '+54 11 5550-1004',
-    role: 'Gestor de proyecto'
-  },
-  {
-    id: 'col-5',
-    firstName: 'Sandra',
-    lastName: 'Díaz',
-    email: 'sandra.diaz@empresa.com',
-    phone: '+54 11 5550-1005',
-    role: 'Colaborador'
-  },
-  {
-    id: 'col-6',
-    firstName: 'Pedro',
-    lastName: 'Fernández',
-    email: 'pedro.fernandez@empresa.com',
-    phone: '+54 11 5550-1006',
-    role: 'Colaborador'
-  },
-  {
-    id: 'col-7',
-    firstName: 'Laura',
-    lastName: 'Martínez',
-    email: 'laura.martinez@empresa.com',
-    phone: '+54 11 5550-1007',
-    role: 'Gestor de proyecto'
-  },
-  {
-    id: 'col-8',
-    firstName: 'Elena',
-    lastName: 'García',
-    email: 'elena.garcia@empresa.com',
-    phone: '+54 11 5550-1008',
-    role: 'Colaborador'
-  },
-  {
-    id: 'col-9',
-    firstName: 'Javier',
-    lastName: 'Morales',
-    email: 'javier.morales@empresa.com',
-    phone: '+54 11 5550-1009',
-    role: 'Colaborador'
-  }
-];
-
-const INITIAL_RESOURCES: Resource[] = [
-  {
-    id: 'res-1',
-    name: 'Consultor ERP Senior',
-    type: 'Servicio profesional',
-    cost: 15000,
-    description: 'Especialista externo para relevamiento de procesos.'
-  },
-  {
-    id: 'res-2',
-    name: 'Licencias ERP',
-    type: 'Software',
-    cost: 32000,
-    description: 'Licencias anuales para el módulo financiero.'
-  },
-  {
-    id: 'res-3',
-    name: 'Servidor Cloud',
-    type: 'Infraestructura',
-    cost: 9000,
-    description: 'Instancia cloud dedicada al entorno de pruebas.'
-  },
-  {
-    id: 'res-4',
-    name: 'Diseñador UI/UX',
-    type: 'Servicio profesional',
-    cost: 8000,
-    description: 'Diseño de experiencias para la aplicación móvil.'
-  }
-];
-
-const recalculateProjectMetrics = (project: Project): Project => {
-  const usedBudget = project.tasks.reduce(
-    (budget, task) =>
-      budget + task.resources.reduce((resourceBudget, resource) => resourceBudget + resource.cost, 0),
-    0
-  );
-  const totalTasks = project.tasks.length;
-  const completedTasks = project.tasks.filter((task) => task.status === TaskStatus.Completed).length;
-  const progress = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-  let status = project.status;
-  if (progress === 100 && totalTasks > 0) {
-    status = ProjectStatus.Completed;
-  } else if (totalTasks > 0 && progress > 0 && status === ProjectStatus.Planned) {
-    status = ProjectStatus.InProgress;
-  }
-
-  return {
-    ...project,
-    usedBudget,
-    progress,
-    status
-  };
-};
-
-const INITIAL_PROJECTS: Project[] = [
-  {
-    id: 'proj-1',
-    name: 'Implementación ERP',
-    description: 'Integración del nuevo sistema ERP en toda la organización.',
-    status: ProjectStatus.InProgress,
-    progress: 0,
-    startDate: '2024-01-15',
-    endDate: '2024-07-30',
-    managerId: 'col-1',
-    teamIds: ['col-1', 'col-2', 'col-3'],
-    budget: 120000,
-    usedBudget: 0,
-    priority: PriorityLevel.High,
-    tasks: [
-      {
-        id: 'task-1',
-        name: 'Relevamiento de procesos',
-        priority: PriorityLevel.Medium,
-        startDate: '2024-01-15',
-        dueDate: '2024-02-15',
-        status: TaskStatus.Completed,
-        description: 'Documentación de procesos clave para la configuración del ERP.',
-        assigneeIds: ['col-2'],
-        documentation: [
-          { id: 'doc-1', name: 'relevamiento.pdf', uploadedAt: '2024-02-10T09:00:00.000Z' }
-        ],
-        resources: [
-          {
-            id: 'assign-1',
-            resourceId: 'res-1',
-            name: 'Consultor ERP Senior',
-            cost: 15000,
-            assignedAt: '2024-01-20T15:00:00.000Z'
-          }
-        ],
-        progressNotes: [
-          {
-            id: 'note-1',
-            message: 'Proceso documentado y aprobado por operaciones.',
-            createdAt: '2024-02-12T12:00:00.000Z'
-          }
-        ],
-        createdAt: '2024-01-10T08:00:00.000Z'
-      },
-      {
-        id: 'task-2',
-        name: 'Configuración de módulos financieros',
-        priority: PriorityLevel.Critical,
-        startDate: '2024-02-20',
-        dueDate: '2024-05-15',
-        status: TaskStatus.InProgress,
-        description: 'Parametrización del módulo financiero y de inventario.',
-        assigneeIds: ['col-2', 'col-3'],
-        documentation: [],
-        resources: [
-          {
-            id: 'assign-2',
-            resourceId: 'res-2',
-            name: 'Licencias ERP',
-            cost: 32000,
-            assignedAt: '2024-03-01T13:00:00.000Z'
-          }
-        ],
-        progressNotes: [
-          {
-            id: 'note-2',
-            message: 'Módulos base configurados, resta pruebas integrales.',
-            createdAt: '2024-04-10T10:30:00.000Z'
-          }
-        ],
-        createdAt: '2024-02-18T09:30:00.000Z'
-      }
-    ]
-  },
-  {
-    id: 'proj-2',
-    name: 'Lanzamiento App Móvil',
-    description: 'Desarrollo y lanzamiento de la aplicación móvil para clientes.',
-    status: ProjectStatus.Planned,
-    progress: 0,
-    startDate: '2024-03-01',
-    endDate: '2024-09-15',
-    managerId: 'col-4',
-    teamIds: ['col-4', 'col-5', 'col-6'],
-    budget: 80000,
-    usedBudget: 0,
-    priority: PriorityLevel.Medium,
-    tasks: [
-      {
-        id: 'task-3',
-        name: 'Definición de roadmap',
-        priority: PriorityLevel.High,
-        startDate: '2024-03-01',
-        dueDate: '2024-03-31',
-        status: TaskStatus.Pending,
-        description: 'Recolección de requerimientos y priorización del MVP.',
-        assigneeIds: ['col-5'],
-        documentation: [],
-        resources: [],
-        progressNotes: [],
-        createdAt: '2024-02-25T11:00:00.000Z'
-      }
-    ]
-  },
-  {
-    id: 'proj-3',
-    name: 'Migración a la nube',
-    description: 'Traslado de la infraestructura actual a servicios en la nube.',
-    status: ProjectStatus.Completed,
-    progress: 0,
-    startDate: '2023-05-10',
-    endDate: '2023-12-20',
-    managerId: 'col-7',
-    teamIds: ['col-7', 'col-8', 'col-9'],
-    budget: 95000,
-    usedBudget: 0,
-    priority: PriorityLevel.Medium,
-    tasks: [
-      {
-        id: 'task-4',
-        name: 'Migración de bases de datos',
-        priority: PriorityLevel.High,
-        startDate: '2023-07-01',
-        dueDate: '2023-08-20',
-        status: TaskStatus.Completed,
-        description: 'Migración de bases de datos principales a infraestructura cloud.',
-        assigneeIds: ['col-8'],
-        documentation: [
-          { id: 'doc-2', name: 'plan-migracion.xlsx', uploadedAt: '2023-07-05T08:30:00.000Z' }
-        ],
-        resources: [
-          {
-            id: 'assign-3',
-            resourceId: 'res-3',
-            name: 'Servidor Cloud',
-            cost: 9000,
-            assignedAt: '2023-07-02T10:45:00.000Z'
-          }
-        ],
-        progressNotes: [
-          {
-            id: 'note-3',
-            message: 'Bases migradas sin incidentes, monitoreo 48h completado.',
-            createdAt: '2023-08-22T09:15:00.000Z'
-          }
-        ],
-        createdAt: '2023-06-12T10:00:00.000Z'
-      }
-    ]
-  }
-].map(recalculateProjectMetrics);
+import { mapPriorityDescription, mapTaskStatusDescription } from '../utils/status';
 
 export interface CreateProjectPayload {
   name: string;
@@ -314,7 +33,6 @@ export interface CreateProjectPayload {
   endDate: string;
   budget: number;
   priority: PriorityLevel;
-  managerId: string;
 }
 
 export interface CreateTaskPayload {
@@ -330,6 +48,7 @@ export interface RegisterCollaboratorPayload {
   lastName: string;
   email: string;
   phone: string;
+  password: string;
   role: CollaboratorRole;
 }
 
@@ -337,359 +56,762 @@ interface ProjectManagementContextValue {
   projects: Project[];
   collaborators: Collaborator[];
   resources: Resource[];
-  createProject: (payload: CreateProjectPayload) => Project;
-  createTask: (projectId: string, payload: CreateTaskPayload) => Task;
-  deleteTask: (projectId: string, taskId: string) => void;
-  setTaskCollaborators: (projectId: string, taskId: string, collaboratorIds: string[]) => void;
-  assignResourceToTask: (projectId: string, taskId: string, resourceId: string) => ResourceAssignment;
-  removeResourceFromTask: (projectId: string, taskId: string, assignmentId: string) => void;
-  addDocumentationToTask: (projectId: string, taskId: string, documentNames: string[]) => TaskDocument[];
-  removeDocumentationFromTask: (projectId: string, taskId: string, documentId: string) => void;
-  updateTaskStatus: (projectId: string, taskId: string, status: TaskStatus, note: string) => void;
-  registerCollaborator: (payload: RegisterCollaboratorPayload) => Collaborator;
+  isLoading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+  loadProject: (projectId: string) => Promise<Project | undefined>;
+  createProject: (payload: CreateProjectPayload) => Promise<Project>;
+  createTask: (projectId: string, payload: CreateTaskPayload) => Promise<Task>;
+  deleteTask: (projectId: string, taskId: string) => Promise<void>;
+  setTaskCollaborators: (projectId: string, taskId: string, collaboratorIds: string[]) => Promise<void>;
+  assignResourceToTask: (
+    projectId: string,
+    taskId: string,
+    resourceId: string,
+    quantity: number
+  ) => Promise<ResourceAssignment>;
+  removeResourceFromTask: (projectId: string, taskId: string, assignmentId: string) => Promise<void>;
+  addDocumentationToTask: (projectId: string, taskId: string, files: File[]) => Promise<TaskDocument[]>;
+  removeDocumentationFromTask: (projectId: string, taskId: string, documentId: string) => Promise<void>;
+  updateTaskStatus: (
+    projectId: string,
+    taskId: string,
+    status: TaskStatus,
+    note: string
+  ) => Promise<void>;
+  registerCollaborator: (payload: RegisterCollaboratorPayload) => Promise<Collaborator>;
 }
 
 const ProjectManagementContext = createContext<ProjectManagementContextValue | undefined>(undefined);
 
-export const ProjectManagementProvider = ({ children }: { children: ReactNode }) => {
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
-  const [collaborators, setCollaborators] = useState<Collaborator[]>(INITIAL_COLLABORATORS);
-  const [resources] = useState<Resource[]>(INITIAL_RESOURCES);
+type RawRole = 'GESTOR' | 'COLABORADOR';
 
-  const createProject = (payload: CreateProjectPayload) => {
-    const { name, description, startDate, endDate, budget, priority, managerId } = payload;
-    if (!name.trim() || !description.trim()) {
-      throw new Error('El nombre y la descripción del proyecto son obligatorios.');
+type ApiPriority = { id: string; description: string };
+type ApiTaskState = { id: string; description: string };
+interface ApiRole {
+  id: number;
+  name: RawRole;
+}
+interface ApiEmployee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  role: ApiRole;
+}
+interface ApiTask {
+  id: string;
+  description: string;
+  state: { id: string; description: string };
+  priority: { id: string; description: string };
+  startDate?: string | null;
+  estimatedDate?: string | null;
+  endDate?: string | null;
+  documents?: ApiDocument[];
+  evolutions?: ApiTaskEvolution[];
+}
+interface ApiTaskAssignment {
+  id: string;
+  task: ApiTask;
+  employee?: ApiEmployee | null;
+}
+interface ApiTaskProjectResource {
+  id: string;
+  task: ApiTask;
+  resource: ApiResource;
+  quantity: number;
+}
+interface ApiProjectAssignment {
+  id: number;
+  employee: ApiEmployee;
+}
+interface ApiResource {
+  id: string;
+  description: string;
+  unitCost: string;
+}
+interface ApiDocument {
+  id: string;
+  fileName: string;
+  uploadedAt: string;
+}
+interface ApiTaskEvolution {
+  id: string;
+  description?: string;
+  startDate: string;
+}
+interface ApiProject {
+  id: string;
+  name: string;
+  description?: string | null;
+  startDate: string;
+  estimatedDate: string;
+  endDate?: string | null;
+  budget: string;
+  priority: ApiPriority;
+  taskAssignments?: ApiTaskAssignment[];
+  collaborators?: ApiProjectAssignment[];
+  resources?: ApiTaskProjectResource[];
+}
+
+const extractApiErrorMessage = (error: unknown, fallback: string) => {
+  if (isAxiosError(error)) {
+    const message = (error.response?.data as { message?: string | string[] } | undefined)?.message;
+    if (Array.isArray(message)) {
+      return message.join(' ');
     }
-
-    if (!startDate || !endDate) {
-      throw new Error('Las fechas de inicio y fin son obligatorias.');
+    if (typeof message === 'string') {
+      return message;
     }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+};
 
-    if (new Date(startDate) > new Date(endDate)) {
-      throw new Error('La fecha de inicio debe ser anterior a la fecha estimada de finalización.');
-    }
+const mapEmployeeToCollaborator = (employee: ApiEmployee): Collaborator => ({
+  id: employee.id,
+  firstName: employee.firstName,
+  lastName: employee.lastName,
+  email: employee.email ?? '',
+  phone: employee.phone ?? '',
+  role: employee.role.name === 'GESTOR' ? 'Gestor de proyecto' : 'Colaborador'
+});
 
-    if (!Number.isFinite(budget) || budget <= 0) {
-      throw new Error('El presupuesto debe ser un número mayor a cero.');
-    }
+const mergeCollaborators = (projects: Project[], additional: Collaborator[]): Collaborator[] => {
+  const registry = new Map<string, Collaborator>();
 
-    if (!managerId) {
-      throw new Error('Se debe seleccionar un gestor responsable.');
-    }
-
-    const project: Project = recalculateProjectMetrics({
-      id: generateId('proj'),
-      name: name.trim(),
-      description: description.trim(),
-      status: ProjectStatus.Planned,
-      progress: 0,
-      startDate,
-      endDate,
-      managerId,
-      teamIds: [managerId],
-      budget,
-      usedBudget: 0,
-      priority,
-      tasks: []
+  projects.forEach((project) => {
+    project.teamMembers?.forEach((member) => {
+      registry.set(member.id, member);
     });
+  });
 
-    setProjects((prev) => [...prev, project]);
+  additional.forEach((collaborator) => {
+    registry.set(collaborator.id, collaborator);
+  });
 
-    return project;
-  };
+  return Array.from(registry.values()).sort((a, b) => {
+    const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+    const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+};
 
-  const createTask = (projectId: string, payload: CreateTaskPayload) => {
-    const { name, priority, startDate, dueDate, description } = payload;
+const mapApiResourceToResource = (resource: ApiResource): Resource => ({
+  id: resource.id,
+  name: resource.description,
+  type: 'Recurso',
+  cost: Number(resource.unitCost),
+  description: resource.description
+});
 
-    if (!name.trim()) {
-      throw new Error('El nombre de la tarea es obligatorio.');
+const mapApiProjectToProject = (apiProject: ApiProject): Project => {
+  const collaboratorCache = new Map<string, Collaborator>();
+  const tasksMap = new Map<string, Task>();
+
+  const assignments = apiProject.taskAssignments ?? [];
+  assignments.forEach((assignment) => {
+    const { task, employee } = assignment;
+    const existing = tasksMap.get(task.id);
+    const assigneeIds = existing?.assigneeIds ?? [];
+
+    if (employee) {
+      assigneeIds.push(employee.id);
+      const collaborator = mapEmployeeToCollaborator(employee);
+      collaboratorCache.set(collaborator.id, collaborator);
     }
 
-    if (!startDate || !dueDate) {
-      throw new Error('Las fechas de la tarea son obligatorias.');
-    }
-
-    if (new Date(startDate) > new Date(dueDate)) {
-      throw new Error('La fecha de inicio debe ser anterior a la fecha estimada de finalización de la tarea.');
-    }
-
-    const task: Task = {
-      id: generateId('task'),
-      name: name.trim(),
-      priority,
-      startDate,
-      dueDate,
-      status: TaskStatus.Pending,
-      description: description?.trim() ?? '',
+    const mappedTask: Task = existing ?? {
+      id: task.id,
+      name: task.description,
+      priority: mapPriorityDescription(task.priority.description),
+      startDate: task.startDate ?? apiProject.startDate,
+      dueDate: task.estimatedDate ?? apiProject.estimatedDate,
+      status: mapTaskStatusDescription(task.state.description),
+      description: '',
       assigneeIds: [],
-      documentation: [],
+      documentation: (task.documents ?? []).map((document) => ({
+        id: document.id,
+        name: document.fileName,
+        uploadedAt: document.uploadedAt
+      })),
       resources: [],
-      progressNotes: [],
-      createdAt: new Date().toISOString()
+      progressNotes: (task.evolutions ?? []).map<TaskProgressNote>((evolution) => ({
+        id: evolution.id,
+        message: evolution.description ?? 'Actualización registrada',
+        createdAt: evolution.startDate
+      })),
+      createdAt: task.startDate ?? apiProject.startDate
     };
 
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
+    mappedTask.assigneeIds = Array.from(new Set([...mappedTask.assigneeIds, ...assigneeIds]));
+    tasksMap.set(task.id, mappedTask);
+  });
 
-        const updatedProject = {
-          ...project,
-          tasks: [...project.tasks, task]
-        };
-
-        return recalculateProjectMetrics(updatedProject);
-      })
-    );
-
-    return task;
-  };
-
-  const deleteTask = (projectId: string, taskId: string) => {
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        const updatedProject = {
-          ...project,
-          tasks: project.tasks.filter((task) => task.id !== taskId)
-        };
-
-        return recalculateProjectMetrics(updatedProject);
-      })
-    );
-  };
-
-  const setTaskCollaborators = (projectId: string, taskId: string, collaboratorIds: string[]) => {
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        const uniqueCollaborators = [...new Set(collaboratorIds)];
-        const updatedProject = {
-          ...project,
-          teamIds: [...new Set([...project.teamIds, ...uniqueCollaborators])],
-          tasks: project.tasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  assigneeIds: uniqueCollaborators
-                }
-              : task
-          )
-        };
-
-        return recalculateProjectMetrics(updatedProject);
-      })
-    );
-  };
-
-  const assignResourceToTask = (projectId: string, taskId: string, resourceId: string) => {
-    const resource = resources.find((item) => item.id === resourceId);
-    if (!resource) {
-      throw new Error('El recurso seleccionado no está disponible.');
+  const projectResources = apiProject.resources ?? [];
+  projectResources.forEach((allocation) => {
+    const existingTask = tasksMap.get(allocation.task.id);
+    if (!existingTask) {
+      const newTask: Task = {
+        id: allocation.task.id,
+        name: allocation.task.description,
+        priority: mapPriorityDescription(allocation.task.priority.description),
+        startDate: allocation.task.startDate ?? apiProject.startDate,
+        dueDate: allocation.task.estimatedDate ?? apiProject.estimatedDate,
+        status: mapTaskStatusDescription(allocation.task.state.description),
+        description: '',
+        assigneeIds: [],
+        documentation: [],
+        resources: [],
+        progressNotes: [],
+        createdAt: allocation.task.startDate ?? apiProject.startDate
+      };
+      tasksMap.set(allocation.task.id, newTask);
     }
 
-    const assignment: ResourceAssignment = {
-      id: generateId('assign'),
-      resourceId: resource.id,
-      name: resource.name,
-      cost: resource.cost,
-      assignedAt: new Date().toISOString()
+    const unitCost = Number(allocation.resource.unitCost);
+    const resourceAssignment: ResourceAssignment = {
+      id: allocation.id,
+      resourceId: allocation.resource.id,
+      name: allocation.resource.description,
+      quantity: allocation.quantity,
+      unitCost,
+      cost: unitCost * allocation.quantity,
+      assignedAt: allocation.task.startDate ?? apiProject.startDate
     };
 
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        const updatedProject = {
-          ...project,
-          tasks: project.tasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  resources: [...task.resources, assignment]
-                }
-              : task
-          )
-        };
-
-        return recalculateProjectMetrics(updatedProject);
-      })
-    );
-
-    return assignment;
-  };
-
-  const removeResourceFromTask = (projectId: string, taskId: string, assignmentId: string) => {
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        const updatedProject = {
-          ...project,
-          tasks: project.tasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  resources: task.resources.filter((resource) => resource.id !== assignmentId)
-                }
-              : task
-          )
-        };
-
-        return recalculateProjectMetrics(updatedProject);
-      })
-    );
-  };
-
-  const addDocumentationToTask = (projectId: string, taskId: string, documentNames: string[]) => {
-    const documents: TaskDocument[] = documentNames.map((name) => ({
-      id: generateId('doc'),
-      name,
-      uploadedAt: new Date().toISOString()
-    }));
-
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        return {
-          ...project,
-          tasks: project.tasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  documentation: [...task.documentation, ...documents]
-                }
-              : task
-          )
-        };
-      })
-    );
-
-    return documents;
-  };
-
-  const removeDocumentationFromTask = (projectId: string, taskId: string, documentId: string) => {
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        return {
-          ...project,
-          tasks: project.tasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  documentation: task.documentation.filter((document) => document.id !== documentId)
-                }
-              : task
-          )
-        };
-      })
-    );
-  };
-
-  const updateTaskStatus = (projectId: string, taskId: string, status: TaskStatus, note: string) => {
-    if (!note.trim()) {
-      throw new Error('Se debe ingresar una descripción del avance.');
+    const task = tasksMap.get(allocation.task.id);
+    if (task && !task.resources.find((item) => item.id === resourceAssignment.id)) {
+      task.resources = [...task.resources, resourceAssignment];
     }
+  });
 
-    const progressNote: TaskProgressNote = {
-      id: generateId('note'),
-      message: note.trim(),
-      createdAt: new Date().toISOString()
-    };
+  const tasks = Array.from(tasksMap.values());
+  const completedTasks = tasks.filter((task) => task.status === TaskStatus.Completed).length;
+  const progress = tasks.length ? Math.round((completedTasks / tasks.length) * 100) : 0;
 
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
+  const projectAssignments = apiProject.collaborators ?? [];
+  const teamIds = new Set<string>();
+  projectAssignments.forEach((assignment) => {
+    const collaborator = mapEmployeeToCollaborator(assignment.employee);
+    collaboratorCache.set(collaborator.id, collaborator);
+    teamIds.add(collaborator.id);
+  });
+  tasks.forEach((task) => task.assigneeIds.forEach((id) => teamIds.add(id)));
 
-        const updatedProject = {
-          ...project,
-          tasks: project.tasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  status,
-                  progressNotes: [...task.progressNotes, progressNote]
-                }
-              : task
-          )
-        };
+  const manager = Array.from(collaboratorCache.values()).find((item) => item.role === 'Gestor de proyecto');
 
-        return recalculateProjectMetrics(updatedProject);
-      })
-    );
+  return {
+    id: apiProject.id,
+    name: apiProject.name,
+    description: apiProject.description ?? '',
+    status:
+      progress === 100 && tasks.length > 0
+        ? ProjectStatus.Completed
+        : tasks.length > 0
+        ? ProjectStatus.InProgress
+        : ProjectStatus.Planned,
+    progress,
+    startDate: apiProject.startDate,
+    endDate: apiProject.endDate ?? apiProject.estimatedDate,
+    managerId: manager?.id ?? '',
+    teamIds: Array.from(teamIds),
+    teamMembers: Array.from(collaboratorCache.values()),
+    budget: Number(apiProject.budget),
+    usedBudget: tasks.reduce(
+      (acc, task) => acc + task.resources.reduce((resourceAcc, resource) => resourceAcc + resource.cost, 0),
+      0
+    ),
+    priority: mapPriorityDescription(apiProject.priority.description),
+    tasks
   };
+};
 
-  const registerCollaborator = (payload: RegisterCollaboratorPayload) => {
-    const { firstName, lastName, email, phone, role } = payload;
-
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !phone.trim()) {
-      throw new Error('Todos los campos del usuario son obligatorios.');
-    }
-
-    const collaborator: Collaborator = {
-      id: generateId('col'),
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      role
-    };
-
-    setCollaborators((prev) => [...prev, collaborator]);
-
-    return collaborator;
+const createPriorityMap = (priorities: ApiPriority[]): Record<PriorityLevel, string> => {
+  const map: Partial<Record<PriorityLevel, string>> = {};
+  priorities.forEach((priority) => {
+    const level = mapPriorityDescription(priority.description);
+    map[level] = priority.id;
+  });
+  return {
+    [PriorityLevel.Low]: map[PriorityLevel.Low] ?? '',
+    [PriorityLevel.Medium]: map[PriorityLevel.Medium] ?? '',
+    [PriorityLevel.High]: map[PriorityLevel.High] ?? ''
   };
+};
 
-  return (
-    <ProjectManagementContext.Provider
-      value={{
-        projects,
-        collaborators,
-        resources,
-        createProject,
-        createTask,
-        deleteTask,
-        setTaskCollaborators,
-        assignResourceToTask,
-        removeResourceFromTask,
-        addDocumentationToTask,
-        removeDocumentationFromTask,
-        updateTaskStatus,
-        registerCollaborator
-      }}
-    >
-      {children}
-    </ProjectManagementContext.Provider>
+const createTaskStateMap = (states: ApiTaskState[]): Record<TaskStatus, string> => {
+  const map: Partial<Record<TaskStatus, string>> = {};
+  states.forEach((state) => {
+    const status = mapTaskStatusDescription(state.description);
+    map[status] = state.id;
+  });
+  return {
+    [TaskStatus.Pending]: map[TaskStatus.Pending] ?? '',
+    [TaskStatus.InProgress]: map[TaskStatus.InProgress] ?? '',
+    [TaskStatus.InReview]: map[TaskStatus.InReview] ?? '',
+    [TaskStatus.Completed]: map[TaskStatus.Completed] ?? ''
+  };
+};
+
+export const ProjectManagementProvider = ({ children }: { children: ReactNode }) => {
+  const { token, user } = useAuth();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [priorityIdMap, setPriorityIdMap] = useState<Record<PriorityLevel, string>>({
+    [PriorityLevel.Low]: '',
+    [PriorityLevel.Medium]: '',
+    [PriorityLevel.High]: ''
+  });
+  const [taskStateIdMap, setTaskStateIdMap] = useState<Record<TaskStatus, string>>({
+    [TaskStatus.Pending]: '',
+    [TaskStatus.InProgress]: '',
+    [TaskStatus.InReview]: '',
+    [TaskStatus.Completed]: ''
+  });
+  const [externalCollaborators, setExternalCollaborators] = useState<Collaborator[]>([]);
+  const [resourceCatalog, setResourceCatalog] = useState<Resource[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const collaborators = useMemo(
+    () => mergeCollaborators(projects, externalCollaborators),
+    [projects, externalCollaborators]
   );
+
+  const resources = useMemo(() => resourceCatalog, [resourceCatalog]);
+
+  const loadProject = useCallback(
+    async (projectId: string) => {
+      if (!token) {
+        return undefined;
+      }
+
+      const { data } = await apiClient.get<ApiProject>(
+        `/projects/${projectId}`,
+        withAuthorization(token)
+      );
+
+      const mapped = mapApiProjectToProject(data);
+      setProjects((prev) => {
+        const index = prev.findIndex((project) => project.id === projectId);
+        if (index === -1) {
+          return [...prev, mapped];
+        }
+        const next = [...prev];
+        next[index] = mapped;
+        return next;
+      });
+      return mapped;
+    },
+    [token]
+  );
+
+  const loadInitialData = useCallback(async () => {
+    if (!token) {
+      setProjects([]);
+      setExternalCollaborators([]);
+      setResourceCatalog([]);
+      setPriorityIdMap({
+        [PriorityLevel.Low]: '',
+        [PriorityLevel.Medium]: '',
+        [PriorityLevel.High]: ''
+      });
+      setTaskStateIdMap({
+        [TaskStatus.Pending]: '',
+        [TaskStatus.InProgress]: '',
+        [TaskStatus.InReview]: '',
+        [TaskStatus.Completed]: ''
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [prioritiesResponse, taskStatesResponse, resourcesResponse, projectsResponse] =
+        await Promise.all([
+          apiClient.get<ApiPriority[]>(`/projects/catalog/priorities`, withAuthorization(token)),
+          apiClient.get<ApiTaskState[]>(`/projects/catalog/task-states`, withAuthorization(token)),
+          apiClient.get<ApiResource[]>(`/projects/catalog/resources`, withAuthorization(token)),
+          apiClient.get<ApiProject[]>(`/projects`, withAuthorization(token))
+        ]);
+
+      setPriorityIdMap(createPriorityMap(prioritiesResponse.data));
+      setTaskStateIdMap(createTaskStateMap(taskStatesResponse.data));
+      setResourceCatalog(resourcesResponse.data.map(mapApiResourceToResource));
+
+      const mappedProjects = projectsResponse.data.map((project) => mapApiProjectToProject(project));
+      setProjects(mappedProjects);
+
+      if (user?.roleName === 'GESTOR') {
+        const { data: collaboratorsResponse } = await apiClient.get<ApiEmployee[]>(
+          `/employees/collaborators`,
+          withAuthorization(token)
+        );
+        setExternalCollaborators(collaboratorsResponse.map(mapEmployeeToCollaborator));
+      } else {
+        setExternalCollaborators([]);
+      }
+    } catch (err) {
+      console.error(err);
+      setError('No se pudieron cargar los datos desde el backend.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, user?.roleName]);
+
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
+
+  const refresh = useCallback(async () => {
+    await loadInitialData();
+  }, [loadInitialData]);
+
+  const ensureAuthenticated = useCallback(() => {
+    if (!token) {
+      throw new Error('No se pudo completar la operación: sesión expirada.');
+    }
+  }, [token]);
+
+  const resolvePriorityId = useCallback(
+    (priority: PriorityLevel) => {
+      const priorityId = priorityIdMap[priority];
+      if (!priorityId) {
+        throw new Error('No se encontró la prioridad seleccionada en el catálogo.');
+      }
+      return priorityId;
+    },
+    [priorityIdMap]
+  );
+
+  const resolveTaskStateId = useCallback(
+    (status: TaskStatus) => {
+      const stateId = taskStateIdMap[status];
+      if (!stateId) {
+        throw new Error('No se encontró el estado de tarea en el catálogo.');
+      }
+      return stateId;
+    },
+    [taskStateIdMap]
+  );
+
+  const createProjectHandler = useCallback(
+    async (payload: CreateProjectPayload) => {
+      ensureAuthenticated();
+      const priorityId = resolvePriorityId(payload.priority);
+
+      const { data } = await apiClient.post<ApiProject>(
+        '/projects',
+        {
+          name: payload.name.trim(),
+          description: payload.description.trim(),
+          startDate: payload.startDate,
+          estimatedDate: payload.endDate,
+          budget: payload.budget,
+          priorityId
+        },
+        withAuthorization(token)
+      );
+
+      const project = await loadProject(data.id);
+      return project ?? mapApiProjectToProject(data);
+    },
+    [ensureAuthenticated, resolvePriorityId, token, loadProject]
+  );
+
+  const createTaskHandler = useCallback(
+    async (projectId: string, payload: CreateTaskPayload) => {
+      ensureAuthenticated();
+      const priorityId = resolvePriorityId(payload.priority);
+
+      const { data } = await apiClient.post<ApiTask>(
+        `/projects/${projectId}/tasks`,
+        {
+          description: payload.name.trim(),
+          priorityId,
+          startDate: payload.startDate,
+          estimatedDate: payload.dueDate
+        },
+        withAuthorization(token)
+      );
+
+      const project = await loadProject(projectId);
+      const createdTask = project?.tasks.find((task) => task.id === data.id);
+      return (
+        createdTask ?? {
+          id: data.id,
+          name: data.description,
+          priority: mapPriorityDescription(data.priority.description),
+          startDate: data.startDate ?? project?.startDate ?? payload.startDate,
+          dueDate: data.estimatedDate ?? payload.dueDate,
+          status: mapTaskStatusDescription(data.state.description),
+          description: payload.description ?? '',
+          assigneeIds: [],
+          documentation: [],
+          resources: [],
+          progressNotes: [],
+          createdAt: data.startDate ?? new Date().toISOString()
+        }
+      );
+    },
+    [ensureAuthenticated, resolvePriorityId, token, loadProject]
+  );
+
+  const deleteTaskHandler = useCallback(
+    async (projectId: string, taskId: string) => {
+      ensureAuthenticated();
+      await apiClient.delete(
+        `/projects/${projectId}/tasks/${taskId}`,
+        withAuthorization(token)
+      );
+      await loadProject(projectId);
+    },
+    [ensureAuthenticated, token, loadProject]
+  );
+
+  const setTaskCollaboratorsHandler = useCallback(
+    async (projectId: string, taskId: string, collaboratorIds: string[]) => {
+      ensureAuthenticated();
+      await apiClient.post(
+        `/projects/${projectId}/tasks/${taskId}/collaborators`,
+        { collaboratorIds },
+        withAuthorization(token)
+      );
+      await loadProject(projectId);
+    },
+    [ensureAuthenticated, token, loadProject]
+  );
+
+  const assignResourceHandler = useCallback(
+    async (projectId: string, taskId: string, resourceId: string, quantity: number) => {
+      ensureAuthenticated();
+      const sanitizedQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+      const { data } = await apiClient.post<ApiTaskProjectResource>(
+        `/projects/${projectId}/tasks/${taskId}/resources`,
+        { resourceId, quantity: sanitizedQuantity },
+        withAuthorization(token)
+      );
+      const project = await loadProject(projectId);
+      const updatedTask = project?.tasks.find((task) => task.id === taskId);
+      const assignment = updatedTask?.resources.find((resource) => resource.id === data.id);
+      return (
+        assignment ?? {
+          id: data.id,
+          resourceId: data.resource.id,
+          name: data.resource.description,
+          quantity: data.quantity,
+          unitCost: Number(data.resource.unitCost),
+          cost: Number(data.resource.unitCost) * data.quantity,
+          assignedAt: new Date().toISOString()
+        }
+      );
+    },
+    [ensureAuthenticated, token, loadProject]
+  );
+
+  const removeResourceHandler = useCallback(
+    async (_projectId: string, _taskId: string, _assignmentId: string) => {
+      throw new Error('La eliminación de recursos aún no está disponible en el backend.');
+    },
+    []
+  );
+
+  const addDocumentationHandler = useCallback(
+    async (projectId: string, taskId: string, files: File[]): Promise<TaskDocument[]> => {
+      ensureAuthenticated();
+
+      if (files.length === 0) {
+        return [];
+      }
+
+      const readFileAsBase64 = (file: File) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            if (typeof result === 'string') {
+              const [, base64] = result.split(',');
+              resolve(base64 ?? result);
+            } else {
+              reject(new Error('No se pudo leer el archivo seleccionado.'));
+            }
+          };
+          reader.onerror = () => reject(new Error('No se pudo leer el archivo seleccionado.'));
+          reader.readAsDataURL(file);
+        });
+
+      try {
+        const responses = await Promise.all(
+          files.map(async (file) => {
+            const base64 = await readFileAsBase64(file);
+            const extension = file.name.includes('.')
+              ? file.name.split('.').pop() ?? ''
+              : '';
+
+            const { data } = await apiClient.post<ApiDocument>(
+              `/documents/tasks/${taskId}`,
+              {
+                fileName: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                extension: extension || 'bin',
+                sizeBytes: file.size,
+                contentBase64: base64
+              },
+              withAuthorization(token)
+            );
+
+            return data;
+          })
+        );
+
+        await loadProject(projectId);
+
+        return responses.map((document) => ({
+          id: document.id,
+          name: document.fileName,
+          uploadedAt: document.uploadedAt
+        }));
+      } catch (error) {
+        throw new Error(
+          extractApiErrorMessage(
+            error,
+            'No se pudo adjuntar la documentación. Verifica los archivos e intenta nuevamente.'
+          )
+        );
+      }
+    },
+    [ensureAuthenticated, token, loadProject]
+  );
+
+  const removeDocumentationHandler = useCallback(
+    async (projectId: string, _taskId: string, documentId: string) => {
+      ensureAuthenticated();
+      await apiClient.delete(`/documents/${documentId}`, withAuthorization(token));
+      await loadProject(projectId);
+    },
+    [ensureAuthenticated, token, loadProject]
+  );
+
+  const updateTaskStatusHandler = useCallback(
+    async (projectId: string, taskId: string, status: TaskStatus, note: string) => {
+      ensureAuthenticated();
+      const stateId = resolveTaskStateId(status);
+      const payload = {
+        stateId,
+        description: note.trim() || 'Actualización registrada'
+      };
+
+      try {
+        await apiClient.patch(
+          `/projects/${projectId}/tasks/${taskId}/status`,
+          payload,
+          withAuthorization(token)
+        );
+        await loadProject(projectId);
+      } catch (error) {
+        throw new Error(
+          extractApiErrorMessage(
+            error,
+            'No se pudo actualizar el estado de la tarea. Intenta nuevamente.'
+          )
+        );
+      }
+    },
+    [ensureAuthenticated, resolveTaskStateId, token, loadProject]
+  );
+
+  const registerCollaboratorHandler = useCallback(
+    async (payload: RegisterCollaboratorPayload) => {
+      ensureAuthenticated();
+      if (payload.role !== 'Colaborador') {
+        throw new Error('Solo se pueden crear usuarios colaboradores desde la aplicación.');
+      }
+
+      try {
+        const { data } = await apiClient.post<ApiEmployee>(
+          '/employees/collaborators',
+          {
+            firstName: payload.firstName.trim(),
+            lastName: payload.lastName.trim(),
+            email: payload.email.trim().toLowerCase(),
+            phone: payload.phone.trim(),
+            password: payload.password
+          },
+          withAuthorization(token)
+        );
+
+        const collaborator = mapEmployeeToCollaborator(data);
+        setExternalCollaborators((prev) => {
+          if (prev.some((item) => item.id === collaborator.id)) {
+            return prev;
+          }
+          return [...prev, collaborator];
+        });
+        return collaborator;
+      } catch (error) {
+        throw new Error(
+          extractApiErrorMessage(
+            error,
+            'No se pudo registrar el colaborador. Verifica la información e intenta nuevamente.'
+          )
+        );
+      }
+    },
+    [ensureAuthenticated, token]
+  );
+
+  const contextValue = useMemo(
+    () => ({
+      projects,
+      collaborators,
+      resources,
+      isLoading,
+      error,
+      refresh,
+      loadProject: loadProject,
+      createProject: createProjectHandler,
+      createTask: createTaskHandler,
+      deleteTask: deleteTaskHandler,
+      setTaskCollaborators: setTaskCollaboratorsHandler,
+      assignResourceToTask: assignResourceHandler,
+      removeResourceFromTask: removeResourceHandler,
+      addDocumentationToTask: addDocumentationHandler,
+      removeDocumentationFromTask: removeDocumentationHandler,
+      updateTaskStatus: updateTaskStatusHandler,
+      registerCollaborator: registerCollaboratorHandler
+    }),
+    [
+      projects,
+      collaborators,
+      resources,
+      isLoading,
+      error,
+      refresh,
+      loadProject,
+      createProjectHandler,
+      createTaskHandler,
+      deleteTaskHandler,
+      setTaskCollaboratorsHandler,
+      assignResourceHandler,
+      removeResourceHandler,
+      addDocumentationHandler,
+      removeDocumentationHandler,
+      updateTaskStatusHandler,
+      registerCollaboratorHandler
+    ]
+  );
+
+  return <ProjectManagementContext.Provider value={contextValue}>{children}</ProjectManagementContext.Provider>;
 };
 
 export const useProjectManagement = () => {
   const context = useContext(ProjectManagementContext);
-
   if (!context) {
     throw new Error('useProjectManagement debe utilizarse dentro de un ProjectManagementProvider');
   }
-
   return context;
 };

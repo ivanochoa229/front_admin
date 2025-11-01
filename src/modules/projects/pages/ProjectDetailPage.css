@@ -346,6 +346,7 @@
 
 .task-card__status select,
 .task-card__resources-form select,
+.task-card__resources-form input,
 .task-card__status textarea {
   border: 1px solid #d0d5dd;
   border-radius: 8px;

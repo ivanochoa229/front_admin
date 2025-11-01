@@ -9,7 +9,7 @@ import StatsCard from '../components/StatsCard';
 import './DashboardPage.css';
 
 const DashboardPage = () => {
-  const { projects } = useProjectManagement();
+  const { projects, isLoading, error } = useProjectManagement();
   const { user } = useAuth();
 
   const visibleProjects = useMemo(() => getProjectsVisibleToUser(projects, user), [projects, user]);
@@ -34,8 +34,23 @@ const DashboardPage = () => {
     };
   }, [visibleProjects]);
 
+  if (isLoading && projects.length === 0) {
+    return (
+      <div className="dashboard-page">
+        <section className="dashboard-page__section">
+          <p>Cargando datos del panel...</p>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-page">
+      {error && (
+        <section className="dashboard-page__section">
+          <div className="dashboard-page__alert">{error}</div>
+        </section>
+      )}
       <section className="dashboard-page__section">
         <h2>Resumen general</h2>
         <div className="dashboard-page__stats">

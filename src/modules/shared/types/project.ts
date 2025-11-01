@@ -8,8 +8,7 @@ export enum ProjectStatus {
 export enum PriorityLevel {
   Low = 'LOW',
   Medium = 'MEDIUM',
-  High = 'HIGH',
-  Critical = 'CRITICAL'
+  High = 'HIGH'
 }
 
 export enum TaskStatus {
@@ -42,6 +41,8 @@ export interface ResourceAssignment {
   id: string;
   resourceId: string;
   name: string;
+  quantity: number;
+  unitCost: number;
   cost: number;
   assignedAt: string;
 }
@@ -83,6 +84,7 @@ export interface Project {
   endDate: string;
   managerId: string;
   teamIds: string[];
+  teamMembers?: Collaborator[];
   budget: number;
   usedBudget: number;
   priority: PriorityLevel;

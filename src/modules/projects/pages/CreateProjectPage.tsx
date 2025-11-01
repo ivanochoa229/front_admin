@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { PriorityLevel } from '../../shared/types/project';
 import { useProjectManagement } from '../../shared/context/ProjectManagementContext';
 import './CreateProjectPage.css';
+import useDismissOnInteraction from '../../shared/hooks/useDismissOnInteraction';
 
 type FormState = {
   name: string;
@@ -12,7 +13,6 @@ type FormState = {
   endDate: string;
   budget: string;
   priority: PriorityLevel;
-  managerId: string;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -21,32 +21,32 @@ const DEFAULT_FORM: FormState = {
   startDate: '',
   endDate: '',
   budget: '',
-  priority: PriorityLevel.Medium,
-  managerId: ''
+  priority: PriorityLevel.Medium
 };
 
 const PRIORITY_LABELS: Record<PriorityLevel, string> = {
   [PriorityLevel.Low]: 'Baja',
   [PriorityLevel.Medium]: 'Media',
-  [PriorityLevel.High]: 'Alta',
-  [PriorityLevel.Critical]: 'Crítica'
+  [PriorityLevel.High]: 'Alta'
 };
 
 const CreateProjectPage = () => {
   const navigate = useNavigate();
-  const { createProject, collaborators } = useProjectManagement();
-  const managers = useMemo(() => collaborators.filter((collaborator) => collaborator.role === 'Gestor de proyecto'), [collaborators]);
+  const { createProject } = useProjectManagement();
 
-  const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM, managerId: managers[0]?.id ?? '' });
+  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<FormState | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!form.managerId && managers.length > 0) {
-      setForm((prev) => ({ ...prev, managerId: managers[0].id }));
-    }
-  }, [managers, form.managerId]);
+  const clearFeedback = useCallback(() => {
+    setError(null);
+    setSuccessMessage(null);
+  }, []);
+
+  const hasFeedback = Boolean(error || successMessage);
+  useDismissOnInteraction(hasFeedback, clearFeedback);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = event.target;
@@ -68,41 +68,38 @@ const CreateProjectPage = () => {
     setPendingConfirmation({ ...form, budget: String(parsedBudget) });
   };
 
-  const handleConfirmCreation = () => {
+  const handleConfirmCreation = async () => {
     if (!pendingConfirmation) {
       return;
     }
 
+    setIsSubmitting(true);
     try {
-      const createdProject = createProject({
+      const createdProject = await createProject({
         name: pendingConfirmation.name,
         description: pendingConfirmation.description,
         startDate: pendingConfirmation.startDate,
         endDate: pendingConfirmation.endDate,
         budget: Number(pendingConfirmation.budget),
-        priority: pendingConfirmation.priority,
-        managerId: pendingConfirmation.managerId
+        priority: pendingConfirmation.priority
       });
 
       setSuccessMessage(`Proyecto "${createdProject.name}" creado correctamente.`);
       setPendingConfirmation(null);
-      setForm({ ...DEFAULT_FORM, managerId: managers[0]?.id ?? '' });
+      setForm(DEFAULT_FORM);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('No se pudo crear el proyecto. Intenta nuevamente.');
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleCancelConfirmation = () => {
     setPendingConfirmation(null);
-  };
-
-  const managerName = (managerId: string) => {
-    const manager = collaborators.find((collaborator) => collaborator.id === managerId);
-    return manager ? `${manager.firstName} ${manager.lastName}` : 'Sin asignar';
   };
 
   return (
@@ -122,19 +119,6 @@ const CreateProjectPage = () => {
           <label>
             Nombre del proyecto
             <input name="name" value={form.name} onChange={handleChange} placeholder="Implementación CRM" required />
-          </label>
-          <label>
-            Gestor responsable
-            <select name="managerId" value={form.managerId} onChange={handleChange} required>
-              <option value="" disabled>
-                Selecciona un gestor
-              </option>
-              {managers.map((manager) => (
-                <option key={manager.id} value={manager.id}>
-                  {manager.firstName} {manager.lastName}
-                </option>
-              ))}
-            </select>
           </label>
           <label>
             Fecha de inicio
@@ -180,7 +164,9 @@ const CreateProjectPage = () => {
           />
         </label>
         <div className="create-project__actions">
-          <button type="submit">Validar datos</button>
+          <button type="submit" disabled={isSubmitting}>
+            Validar datos
+          </button>
         </div>
       </form>
 
@@ -194,9 +180,6 @@ const CreateProjectPage = () => {
           <ul>
             <li>
               <strong>Nombre:</strong> {pendingConfirmation.name}
-            </li>
-            <li>
-              <strong>Gestor:</strong> {managerName(pendingConfirmation.managerId)}
             </li>
             <li>
               <strong>Fechas:</strong> {pendingConfirmation.startDate} → {pendingConfirmation.endDate}
@@ -215,9 +198,9 @@ const CreateProjectPage = () => {
             <button type="button" className="secondary" onClick={handleCancelConfirmation}>
               Editar
             </button>
-            <button type="button" onClick={handleConfirmCreation}>
-              Confirmar creación
-            </button>
+                <button type="button" onClick={handleConfirmCreation} disabled={isSubmitting}>
+                  Confirmar creación
+                </button>
           </div>
         </section>
       )}

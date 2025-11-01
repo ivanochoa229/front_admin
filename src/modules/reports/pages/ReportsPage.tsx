@@ -1,56 +1,103 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { isAxiosError } from 'axios';
 
+import { useAuth } from '../../auth/AuthContext';
 import { useProjectManagement } from '../../shared/context/ProjectManagementContext';
-import { Project, TaskStatus } from '../../shared/types/project';
+import { TaskStatus } from '../../shared/types/project';
+import reportsService, {
+  CollaboratorTaskReportItem,
+  DelayedProjectReportItem,
+  OverAssignmentReportItem
+} from '../../shared/services/reportsService';
+import { getTaskStatusLabel } from '../../shared/utils/status';
 import './ReportsPage.css';
 
-const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  [TaskStatus.Pending]: 'Pendiente',
-  [TaskStatus.InProgress]: 'En curso',
-  [TaskStatus.InReview]: 'En revisión',
-  [TaskStatus.Completed]: 'Completada'
-};
-
 const ReportsPage = () => {
-  const { projects, collaborators } = useProjectManagement();
+  const { token } = useAuth();
+  const { projects, isLoading, error } = useProjectManagement();
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [collaboratorReports, setCollaboratorReports] = useState<CollaboratorTaskReportItem[]>([]);
+  const [overAssignmentReports, setOverAssignmentReports] = useState<OverAssignmentReportItem[]>([]);
+  const [delayedProjects, setDelayedProjects] = useState<DelayedProjectReportItem[]>([]);
 
-  const collaboratorsWithMultipleTasks = useMemo(() => {
-    return collaborators
-      .map((collaborator) => {
-        const assignments: Array<{ project: Project; taskName: string; status: TaskStatus }> = [];
-        projects.forEach((project) => {
-          project.tasks.forEach((task) => {
-            if (task.assigneeIds.includes(collaborator.id)) {
-              assignments.push({ project, taskName: task.name, status: task.status });
-            }
-          });
-        });
+  useEffect(() => {
+    if (!token) {
+      setCollaboratorReports([]);
+      setOverAssignmentReports([]);
+      setDelayedProjects([]);
+      setReportsError(null);
+      setReportsLoading(false);
+      return;
+    }
 
-        return {
-          collaborator,
-          assignments
-        };
-      })
-      .filter((item) => item.assignments.length > 1);
-  }, [projects, collaborators]);
+    let isActive = true;
+    const loadReports = async () => {
+      setReportsLoading(true);
+      setReportsError(null);
+      try {
+        const [multipleTasks, overAssigned, delayed] = await Promise.all([
+          reportsService.getCollaboratorsWithMultipleTasks(token),
+          reportsService.getOverAssignedCollaborators(token),
+          reportsService.getDelayedProjects(token)
+        ]);
+        if (!isActive) {
+          return;
+        }
+        setCollaboratorReports(multipleTasks);
+        setOverAssignmentReports(overAssigned);
+        setDelayedProjects(delayed);
+      } catch (err) {
+        if (!isActive) {
+          return;
+        }
+        let message = 'No fue posible cargar los reportes.';
+        if (isAxiosError(err)) {
+          const rawMessage = (err.response?.data as { message?: string | string[] } | undefined)?.message;
+          if (Array.isArray(rawMessage)) {
+            message = rawMessage.join(' ');
+          } else if (typeof rawMessage === 'string') {
+            message = rawMessage;
+          } else if (err.message) {
+            message = err.message;
+          }
+        } else if (err instanceof Error) {
+          message = err.message;
+        }
+        setReportsError(message);
+      } finally {
+        if (isActive) {
+          setReportsLoading(false);
+        }
+      }
+    };
 
-  const delayedProjects = useMemo(() => {
-    const today = new Date();
-    return projects
-      .map((project) => {
-        const endDate = new Date(project.endDate);
-        const daysLate = Math.ceil((today.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24));
-        const pendingTasks = project.tasks.filter((task) => task.status !== TaskStatus.Completed).length;
+    loadReports();
 
-        return {
-          project,
-          daysLate,
-          pendingTasks,
-          isDelayed: project.status !== TaskStatus.Completed && daysLate > 0
-        };
-      })
-      .filter((entry) => entry.isDelayed);
-  }, [projects]);
+    return () => {
+      isActive = false;
+    };
+  }, [token, projects]);
+
+  const isInitialLoading =
+    (isLoading && projects.length === 0) ||
+    (reportsLoading &&
+      collaboratorReports.length === 0 &&
+      overAssignmentReports.length === 0 &&
+      delayedProjects.length === 0);
+
+  if (isInitialLoading) {
+    return (
+      <div className="reports">
+        <header className="reports__header">
+          <div>
+            <h2>Reportes operativos</h2>
+            <p>Cargando información de los reportes...</p>
+          </div>
+        </header>
+      </div>
+    );
+  }
 
   const taskStatusByProject = useMemo(() => {
     return projects.map((project) => {
@@ -88,9 +135,14 @@ const ReportsPage = () => {
         </div>
       </header>
 
+      {error && <div className="reports__alert">{error}</div>}
+      {reportsError && <div className="reports__alert">{reportsError}</div>}
+
       <section className="reports__section">
         <h3>Reporte de colaboradores con múltiples tareas</h3>
-        {collaboratorsWithMultipleTasks.length === 0 ? (
+        {reportsLoading && collaboratorReports.length === 0 ? (
+          <p className="reports__empty">Cargando colaboradores desde el backend...</p>
+        ) : collaboratorReports.length === 0 ? (
           <p className="reports__empty">No existen colaboradores con más de una tarea asignada.</p>
         ) : (
           <table>
@@ -101,7 +153,7 @@ const ReportsPage = () => {
               </tr>
             </thead>
             <tbody>
-              {collaboratorsWithMultipleTasks.map(({ collaborator, assignments }) => (
+              {collaboratorReports.map(({ collaborator, tasks }) => (
                 <tr key={collaborator.id}>
                   <td>
                     <strong>
@@ -111,14 +163,64 @@ const ReportsPage = () => {
                   </td>
                   <td>
                     <ul>
-                      {assignments.map((assignment, index) => (
-                        <li key={`${assignment.project.id}-${index}`}>
-                          <span className={`status status--${assignment.status.toLowerCase()}`}>
-                            {TASK_STATUS_LABELS[assignment.status]}
+                      {tasks.map((task) => (
+                        <li key={task.id}>
+                          <span className={`status status--${task.status.toLowerCase()}`}>
+                            {task.statusLabel}
                           </span>
                           <div>
-                            <strong>{assignment.taskName}</strong>
-                            <span>{assignment.project.name}</span>
+                            <strong>{task.name}</strong>
+                            <span>{task.project.name}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="reports__section">
+        <h3>Reporte de sobreasignación de tareas</h3>
+        {reportsLoading && overAssignmentReports.length === 0 ? (
+          <p className="reports__empty">Evaluando asignaciones superpuestas...</p>
+        ) : overAssignmentReports.length === 0 ? (
+          <p className="reports__empty">No se detectaron sobreasignaciones en el periodo evaluado.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Colaborador</th>
+                <th>Conflictos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {overAssignmentReports.map(({ collaborator, conflicts }) => (
+                <tr key={`over-${collaborator.id}`}>
+                  <td>
+                    <strong>
+                      {collaborator.firstName} {collaborator.lastName}
+                    </strong>
+                    <span>{collaborator.email}</span>
+                  </td>
+                  <td>
+                    <ul>
+                      {conflicts.map((conflict) => (
+                        <li key={`${conflict.id}-${conflict.startDate}`}>
+                          <span className={`status status--${conflict.status.toLowerCase()}`}>
+                            {conflict.statusLabel}
+                          </span>
+                          <div>
+                            <strong>{conflict.name}</strong>
+                            <span>{conflict.project.name}</span>
+                            <small>
+                              {new Date(conflict.startDate).toLocaleDateString()} -
+                              {' '}
+                              {new Date(conflict.endDate).toLocaleDateString()}
+                            </small>
                           </div>
                         </li>
                       ))}
@@ -133,7 +235,9 @@ const ReportsPage = () => {
 
       <section className="reports__section">
         <h3>Reporte de proyectos atrasados</h3>
-        {delayedProjects.length === 0 ? (
+        {reportsLoading && delayedProjects.length === 0 ? (
+          <p className="reports__empty">Analizando fechas estimadas...</p>
+        ) : delayedProjects.length === 0 ? (
           <p className="reports__empty">No se encontraron proyectos atrasados en el sistema.</p>
         ) : (
           <table>
@@ -146,12 +250,12 @@ const ReportsPage = () => {
               </tr>
             </thead>
             <tbody>
-              {delayedProjects.map(({ project, daysLate, pendingTasks }) => (
-                <tr key={project.id}>
-                  <td>{project.name}</td>
-                  <td>{new Date(project.endDate).toLocaleDateString()}</td>
-                  <td>{daysLate}</td>
-                  <td>{pendingTasks}</td>
+              {delayedProjects.map((report) => (
+                <tr key={report.id}>
+                  <td>{report.name}</td>
+                  <td>{new Date(report.estimatedDate).toLocaleDateString()}</td>
+                  <td>{report.delayDays}</td>
+                  <td>{report.pendingTasks}</td>
                 </tr>
               ))}
             </tbody>
@@ -171,7 +275,7 @@ const ReportsPage = () => {
               <ul>
                 {percentages.map((item) => (
                   <li key={item.status}>
-                    <span>{TASK_STATUS_LABELS[item.status]}</span>
+                    <span>{getTaskStatusLabel(item.status)}</span>
                     <div className="reports__progress">
                       <div className="reports__progress-bar">
                         <div
