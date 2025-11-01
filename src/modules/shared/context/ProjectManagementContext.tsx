@@ -171,6 +171,19 @@ const extractApiErrorMessage = (error: unknown, fallback: string) => {
   return fallback;
 };
 
+const createEmptyPriorityMap = (): Record<PriorityLevel, string> => ({
+  [PriorityLevel.Low]: '',
+  [PriorityLevel.Medium]: '',
+  [PriorityLevel.High]: ''
+});
+
+const createEmptyTaskStateMap = (): Record<TaskStatus, string> => ({
+  [TaskStatus.Pending]: '',
+  [TaskStatus.InProgress]: '',
+  [TaskStatus.InReview]: '',
+  [TaskStatus.Completed]: ''
+});
+
 const mapEmployeeToCollaborator = (employee: ApiEmployee): Collaborator => ({
   id: employee.id,
   firstName: employee.firstName,
@@ -362,17 +375,8 @@ const createTaskStateMap = (states: ApiTaskState[]): Record<TaskStatus, string> 
 export const ProjectManagementProvider = ({ children }: { children: ReactNode }) => {
   const { token, user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [priorityIdMap, setPriorityIdMap] = useState<Record<PriorityLevel, string>>({
-    [PriorityLevel.Low]: '',
-    [PriorityLevel.Medium]: '',
-    [PriorityLevel.High]: ''
-  });
-  const [taskStateIdMap, setTaskStateIdMap] = useState<Record<TaskStatus, string>>({
-    [TaskStatus.Pending]: '',
-    [TaskStatus.InProgress]: '',
-    [TaskStatus.InReview]: '',
-    [TaskStatus.Completed]: ''
-  });
+  const [priorityIdMap, setPriorityIdMap] = useState<Record<PriorityLevel, string>>(createEmptyPriorityMap);
+  const [taskStateIdMap, setTaskStateIdMap] = useState<Record<TaskStatus, string>>(createEmptyTaskStateMap);
   const [externalCollaborators, setExternalCollaborators] = useState<Collaborator[]>([]);
   const [resourceCatalog, setResourceCatalog] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -411,22 +415,19 @@ export const ProjectManagementProvider = ({ children }: { children: ReactNode })
     [token]
   );
 
+  const resetState = useCallback(() => {
+    setProjects([]);
+    setExternalCollaborators([]);
+    setResourceCatalog([]);
+    setPriorityIdMap(createEmptyPriorityMap());
+    setTaskStateIdMap(createEmptyTaskStateMap());
+    setError(null);
+    setIsLoading(false);
+  }, []);
+
   const loadInitialData = useCallback(async () => {
     if (!token) {
-      setProjects([]);
-      setExternalCollaborators([]);
-      setResourceCatalog([]);
-      setPriorityIdMap({
-        [PriorityLevel.Low]: '',
-        [PriorityLevel.Medium]: '',
-        [PriorityLevel.High]: ''
-      });
-      setTaskStateIdMap({
-        [TaskStatus.Pending]: '',
-        [TaskStatus.InProgress]: '',
-        [TaskStatus.InReview]: '',
-        [TaskStatus.Completed]: ''
-      });
+      resetState();
       return;
     }
 
@@ -447,11 +448,7 @@ export const ProjectManagementProvider = ({ children }: { children: ReactNode })
         setPriorityIdMap(createPriorityMap(prioritiesResult.value.data));
       } else {
         console.error(prioritiesResult.reason);
-        setPriorityIdMap({
-          [PriorityLevel.Low]: '',
-          [PriorityLevel.Medium]: '',
-          [PriorityLevel.High]: ''
-        });
+        setPriorityIdMap(createEmptyPriorityMap());
         encounteredErrors.push('No se pudieron cargar las prioridades desde el backend.');
       }
 
@@ -459,12 +456,7 @@ export const ProjectManagementProvider = ({ children }: { children: ReactNode })
         setTaskStateIdMap(createTaskStateMap(taskStatesResult.value.data));
       } else {
         console.error(taskStatesResult.reason);
-        setTaskStateIdMap({
-          [TaskStatus.Pending]: '',
-          [TaskStatus.InProgress]: '',
-          [TaskStatus.InReview]: '',
-          [TaskStatus.Completed]: ''
-        });
+        setTaskStateIdMap(createEmptyTaskStateMap());
         encounteredErrors.push('No se pudieron cargar los estados de tarea.');
       }
 
@@ -507,11 +499,15 @@ export const ProjectManagementProvider = ({ children }: { children: ReactNode })
     } finally {
       setIsLoading(false);
     }
-  }, [token, user?.roleName]);
+  }, [token, user?.roleName, resetState]);
 
   useEffect(() => {
+    if (!token) {
+      resetState();
+      return;
+    }
     loadInitialData();
-  }, [loadInitialData]);
+ }, [token, user?.roleName, loadInitialData, resetState]);
 
   const refresh = useCallback(async () => {
     await loadInitialData();

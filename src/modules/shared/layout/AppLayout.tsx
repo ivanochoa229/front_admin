@@ -32,7 +32,9 @@ const AppLayout = () => {
           <NavLink to="/" end>
             Inicio
           </NavLink>
-          <NavLink to="/projects">{isManager ? 'Proyectos' : 'Mis proyectos'}</NavLink>
+          <NavLink to="/projects" end>
+            {isManager ? 'Proyectos' : 'Mis proyectos'}
+          </NavLink>
           {isManager && <NavLink to="/projects/new">Crear proyecto</NavLink>}
           {isManager && <NavLink to="/teams">Equipos</NavLink>}
           {isManager && <NavLink to="/reports">Reportes</NavLink>}
