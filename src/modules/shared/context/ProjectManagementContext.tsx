@@ -98,7 +98,7 @@ interface ApiEmployee {
   lastName: string;
   email?: string;
   phone?: string;
-  role: ApiRole;
+  role: ApiRole | null;
 }
 interface ApiTask {
   id: string;
@@ -184,14 +184,18 @@ const createEmptyTaskStateMap = (): Record<TaskStatus, string> => ({
   [TaskStatus.Completed]: ''
 });
 
-const mapEmployeeToCollaborator = (employee: ApiEmployee): Collaborator => ({
-  id: employee.id,
-  firstName: employee.firstName,
-  lastName: employee.lastName,
-  email: employee.email ?? '',
-  phone: employee.phone ?? '',
-  role: employee.role.name === 'GESTOR' ? 'Gestor de proyecto' : 'Colaborador'
-});
+const mapEmployeeToCollaborator = (employee: ApiEmployee): Collaborator => {
+  const roleName = employee.role?.name ?? 'COLABORADOR';
+
+  return {
+    id: employee.id,
+    firstName: employee.firstName,
+    lastName: employee.lastName,
+    email: employee.email ?? '',
+    phone: employee.phone ?? '',
+    role: roleName === 'GESTOR' ? 'Gestor de proyecto' : 'Colaborador'
+  };
+};
 
 const mergeCollaborators = (projects: Project[], additional: Collaborator[]): Collaborator[] => {
   const registry = new Map<string, Collaborator>();
