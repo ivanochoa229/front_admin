@@ -103,8 +103,8 @@ interface ApiEmployee {
 interface ApiTask {
   id: string;
   description: string;
-  state: { id: string; description: string };
-  priority: { id: string; description: string };
+  state?: { id: string; description: string } | null;
+  priority?: { id: string; description: string } | null;
   startDate?: string | null;
   estimatedDate?: string | null;
   endDate?: string | null;
@@ -227,10 +227,10 @@ const mapApiProjectToProject = (apiProject: ApiProject): Project => {
     const mappedTask: Task = existing ?? {
       id: task.id,
       name: task.description,
-      priority: mapPriorityDescription(task.priority.description),
+      priority: mapPriorityDescription(task.priority),
       startDate: task.startDate ?? apiProject.startDate,
       dueDate: task.estimatedDate ?? apiProject.estimatedDate,
-      status: mapTaskStatusDescription(task.state.description),
+      status: mapTaskStatusDescription(task.state),
       description: '',
       assigneeIds: [],
       documentation: (task.documents ?? []).map((document) => ({
@@ -258,10 +258,10 @@ const mapApiProjectToProject = (apiProject: ApiProject): Project => {
       const newTask: Task = {
         id: allocation.task.id,
         name: allocation.task.description,
-        priority: mapPriorityDescription(allocation.task.priority.description),
+        priority: mapPriorityDescription(allocation.task.priority),
         startDate: allocation.task.startDate ?? apiProject.startDate,
         dueDate: allocation.task.estimatedDate ?? apiProject.estimatedDate,
-        status: mapTaskStatusDescription(allocation.task.state.description),
+        status: mapTaskStatusDescription(allocation.task.state),
         description: '',
         assigneeIds: [],
         documentation: [],
@@ -325,15 +325,17 @@ const mapApiProjectToProject = (apiProject: ApiProject): Project => {
       (acc, task) => acc + task.resources.reduce((resourceAcc, resource) => resourceAcc + resource.cost, 0),
       0
     ),
-    priority: mapPriorityDescription(apiProject.priority.description),
-    tasks
+    priority: apiProject.priority
+      ? mapPriorityDescription(apiProject.priority.description)
+      : PriorityLevel.Medium,
+      tasks
   };
 };
 
 const createPriorityMap = (priorities: ApiPriority[]): Record<PriorityLevel, string> => {
   const map: Partial<Record<PriorityLevel, string>> = {};
   priorities.forEach((priority) => {
-    const level = mapPriorityDescription(priority.description);
+    const level = mapPriorityDescription(priority);
     map[level] = priority.id;
   });
   return {
@@ -346,7 +348,7 @@ const createPriorityMap = (priorities: ApiPriority[]): Record<PriorityLevel, str
 const createTaskStateMap = (states: ApiTaskState[]): Record<TaskStatus, string> => {
   const map: Partial<Record<TaskStatus, string>> = {};
   states.forEach((state) => {
-    const status = mapTaskStatusDescription(state.description);
+    const status = mapTaskStatusDescription(state);
     map[status] = state.id;
   });
   return {
@@ -431,30 +433,74 @@ export const ProjectManagementProvider = ({ children }: { children: ReactNode })
     setIsLoading(true);
     setError(null);
     try {
-      const [prioritiesResponse, taskStatesResponse, resourcesResponse, projectsResponse] =
-        await Promise.all([
+      const [prioritiesResult, taskStatesResult, resourcesResult, projectsResult] =
+        await Promise.allSettled([
           apiClient.get<ApiPriority[]>(`/projects/catalog/priorities`, withAuthorization(token)),
           apiClient.get<ApiTaskState[]>(`/projects/catalog/task-states`, withAuthorization(token)),
           apiClient.get<ApiResource[]>(`/projects/catalog/resources`, withAuthorization(token)),
           apiClient.get<ApiProject[]>(`/projects`, withAuthorization(token))
         ]);
 
-      setPriorityIdMap(createPriorityMap(prioritiesResponse.data));
-      setTaskStateIdMap(createTaskStateMap(taskStatesResponse.data));
-      setResourceCatalog(resourcesResponse.data.map(mapApiResourceToResource));
+      const encounteredErrors: string[] = [];
 
-      const mappedProjects = projectsResponse.data.map((project) => mapApiProjectToProject(project));
-      setProjects(mappedProjects);
+      if (prioritiesResult.status === 'fulfilled') {
+        setPriorityIdMap(createPriorityMap(prioritiesResult.value.data));
+      } else {
+        console.error(prioritiesResult.reason);
+        setPriorityIdMap({
+          [PriorityLevel.Low]: '',
+          [PriorityLevel.Medium]: '',
+          [PriorityLevel.High]: ''
+        });
+        encounteredErrors.push('No se pudieron cargar las prioridades desde el backend.');
+      }
+
+      if (taskStatesResult.status === 'fulfilled') {
+        setTaskStateIdMap(createTaskStateMap(taskStatesResult.value.data));
+      } else {
+        console.error(taskStatesResult.reason);
+        setTaskStateIdMap({
+          [TaskStatus.Pending]: '',
+          [TaskStatus.InProgress]: '',
+          [TaskStatus.InReview]: '',
+          [TaskStatus.Completed]: ''
+        });
+        encounteredErrors.push('No se pudieron cargar los estados de tarea.');
+      }
+
+      if (resourcesResult.status === 'fulfilled') {
+        setResourceCatalog(resourcesResult.value.data.map(mapApiResourceToResource));
+      } else {
+        console.error(resourcesResult.reason);
+        setResourceCatalog([]);
+        encounteredErrors.push('No se pudo cargar el catálogo de recursos.');
+      }
+
+      if (projectsResult.status === 'fulfilled') {
+        const mappedProjects = projectsResult.value.data.map((project) => mapApiProjectToProject(project));
+        setProjects(mappedProjects);
+      } else {
+        console.error(projectsResult.reason);
+        setProjects([]);
+        encounteredErrors.push('No se pudieron cargar los proyectos.');
+      }
 
       if (user?.roleName === 'GESTOR') {
-        const { data: collaboratorsResponse } = await apiClient.get<ApiEmployee[]>(
-          `/employees/collaborators`,
-          withAuthorization(token)
-        );
-        setExternalCollaborators(collaboratorsResponse.map(mapEmployeeToCollaborator));
+        try {
+          const { data: collaboratorsResponse } = await apiClient.get<ApiEmployee[]>(
+            `/employees/collaborators`,
+            withAuthorization(token)
+          );
+          setExternalCollaborators(collaboratorsResponse.map(mapEmployeeToCollaborator));
+        } catch (collaboratorsError) {
+          console.error(collaboratorsError);
+          setExternalCollaborators([]);
+          encounteredErrors.push('No se pudieron cargar los colaboradores externos.');
+        }
       } else {
         setExternalCollaborators([]);
       }
+      setError(encounteredErrors.length > 0 ? encounteredErrors.join(' ') : null);
     } catch (err) {
       console.error(err);
       setError('No se pudieron cargar los datos desde el backend.');
@@ -545,10 +591,10 @@ export const ProjectManagementProvider = ({ children }: { children: ReactNode })
         createdTask ?? {
           id: data.id,
           name: data.description,
-          priority: mapPriorityDescription(data.priority.description),
+          priority: mapPriorityDescription(data.priority),
           startDate: data.startDate ?? project?.startDate ?? payload.startDate,
           dueDate: data.estimatedDate ?? payload.dueDate,
-          status: mapTaskStatusDescription(data.state.description),
+          status: mapTaskStatusDescription(data.state),
           description: payload.description ?? '',
           assigneeIds: [],
           documentation: [],

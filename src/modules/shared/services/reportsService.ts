@@ -12,7 +12,7 @@ interface ApiCollaboratorTaskReport {
   tasks: Array<{
     taskId: string;
     description: string;
-    state: string;
+    state: string | { description?: string } | null;
     project: {
       id: string;
       name: string;
@@ -30,7 +30,7 @@ interface ApiOverAssignmentReport {
   tasks: Array<{
     taskId: string;
     description: string;
-    state: string;
+    state: string | { description?: string } | null;
     project: { id: string; name: string };
     startDate: string;
     endDate: string;

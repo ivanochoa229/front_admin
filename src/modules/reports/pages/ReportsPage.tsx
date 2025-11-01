@@ -12,6 +12,25 @@ import reportsService, {
 import { getTaskStatusLabel } from '../../shared/utils/status';
 import './ReportsPage.css';
 
+const extractReportErrorMessage = (error: unknown, fallback: string) => {
+  if (isAxiosError(error)) {
+    const rawMessage = (error.response?.data as { message?: string | string[] } | undefined)?.message;
+    if (Array.isArray(rawMessage)) {
+      return rawMessage.join(' ');
+    }
+    if (typeof rawMessage === 'string') {
+      return rawMessage;
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+};
+
 const ReportsPage = () => {
   const { token } = useAuth();
   const { projects, isLoading, error } = useProjectManagement();
@@ -36,7 +55,7 @@ const ReportsPage = () => {
       setReportsLoading(true);
       setReportsError(null);
       try {
-        const [multipleTasks, overAssigned, delayed] = await Promise.all([
+        const [multipleTasksResult, overAssignedResult, delayedResult] = await Promise.allSettled([
           reportsService.getCollaboratorsWithMultipleTasks(token),
           reportsService.getOverAssignedCollaborators(token),
           reportsService.getDelayedProjects(token)
@@ -44,27 +63,54 @@ const ReportsPage = () => {
         if (!isActive) {
           return;
         }
-        setCollaboratorReports(multipleTasks);
-        setOverAssignmentReports(overAssigned);
-        setDelayedProjects(delayed);
+        
+        const partialErrors: string[] = [];
+
+        if (multipleTasksResult.status === 'fulfilled') {
+          setCollaboratorReports(multipleTasksResult.value);
+        } else {
+          setCollaboratorReports([]);
+          partialErrors.push(
+            extractReportErrorMessage(
+              multipleTasksResult.reason,
+              'No fue posible cargar el reporte de colaboradores con múltiples tareas.'
+            )
+          );
+        }
+
+        if (overAssignedResult.status === 'fulfilled') {
+          setOverAssignmentReports(overAssignedResult.value);
+        } else {
+          setOverAssignmentReports([]);
+          partialErrors.push(
+            extractReportErrorMessage(
+              overAssignedResult.reason,
+              'No fue posible cargar el reporte de sobreasignación.'
+            )
+          );
+        }
+
+        if (delayedResult.status === 'fulfilled') {
+          setDelayedProjects(delayedResult.value);
+        } else {
+          setDelayedProjects([]);
+          partialErrors.push(
+            extractReportErrorMessage(
+              delayedResult.reason,
+              'No fue posible cargar el reporte de proyectos retrasados.'
+            )
+          );
+        }
+
+        setReportsError(partialErrors.length > 0 ? partialErrors.join(' ') : null);
       } catch (err) {
         if (!isActive) {
           return;
         }
-        let message = 'No fue posible cargar los reportes.';
-        if (isAxiosError(err)) {
-          const rawMessage = (err.response?.data as { message?: string | string[] } | undefined)?.message;
-          if (Array.isArray(rawMessage)) {
-            message = rawMessage.join(' ');
-          } else if (typeof rawMessage === 'string') {
-            message = rawMessage;
-          } else if (err.message) {
-            message = err.message;
-          }
-        } else if (err instanceof Error) {
-          message = err.message;
-        }
-        setReportsError(message);
+        setReportsError(extractReportErrorMessage(err, 'No fue posible cargar los reportes.'));
+        setCollaboratorReports([]);
+        setOverAssignmentReports([]);
+        setDelayedProjects([]);
       } finally {
         if (isActive) {
           setReportsLoading(false);

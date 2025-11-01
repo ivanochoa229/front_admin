@@ -22,14 +22,29 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   [TaskStatus.Completed]: 'Completada'
 };
 
-export const mapPriorityDescription = (description: string): PriorityLevel => {
-  const normalized = description?.trim().toUpperCase();
-  return PRIORITY_DESCRIPTION_TO_LEVEL[normalized] ?? PriorityLevel.Medium;
+const normalizeDescription = (input: unknown): string | undefined => {
+  if (typeof input === 'string') {
+    return input.trim().toUpperCase();
+  }
+
+  if (input && typeof input === 'object' && 'description' in input) {
+    const value = (input as { description?: unknown }).description;
+    if (typeof value === 'string') {
+      return value.trim().toUpperCase();
+    }
+  }
+
+  return undefined;
 };
 
-export const mapTaskStatusDescription = (description: string): TaskStatus => {
-  const normalized = description?.trim().toUpperCase();
-  return TASK_STATUS_DESCRIPTION_TO_STATUS[normalized] ?? TaskStatus.Pending;
+export const mapPriorityDescription = (description: unknown): PriorityLevel => {
+  const normalized = normalizeDescription(description);
+  return normalized ? PRIORITY_DESCRIPTION_TO_LEVEL[normalized] ?? PriorityLevel.Medium : PriorityLevel.Medium;
+};
+
+export const mapTaskStatusDescription = (description: unknown): TaskStatus => {
+  const normalized = normalizeDescription(description);
+  return normalized ? TASK_STATUS_DESCRIPTION_TO_STATUS[normalized] ?? TaskStatus.Pending : TaskStatus.Pending;
 };
 
 export const getTaskStatusLabel = (status: TaskStatus): string => TASK_STATUS_LABELS[status];
