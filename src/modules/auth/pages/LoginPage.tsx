@@ -13,8 +13,8 @@ type LocationState = {
 const LoginPage = () => {
   const location = useLocation();
   const { login, isLoading, error } = useAuth();
-  const [email, setEmail] = useState('maria.lopez@empresa.com');
-  const [password, setPassword] = useState('Gestor1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

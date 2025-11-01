@@ -125,25 +125,6 @@ const ReportsPage = () => {
     };
   }, [token, projects]);
 
-  const isInitialLoading =
-    (isLoading && projects.length === 0) ||
-    (reportsLoading &&
-      collaboratorReports.length === 0 &&
-      overAssignmentReports.length === 0 &&
-      delayedProjects.length === 0);
-
-  if (isInitialLoading) {
-    return (
-      <div className="reports">
-        <header className="reports__header">
-          <div>
-            <h2>Reportes operativos</h2>
-            <p>Cargando información de los reportes...</p>
-          </div>
-        </header>
-      </div>
-    );
-  }
 
   const taskStatusByProject = useMemo(() => {
     return projects.map((project) => {
@@ -171,6 +152,28 @@ const ReportsPage = () => {
       };
     });
   }, [projects]);
+
+  const isInitialLoading =
+    (isLoading && projects.length === 0) ||
+    (reportsLoading &&
+      collaboratorReports.length === 0 &&
+      overAssignmentReports.length === 0 &&
+      delayedProjects.length === 0);
+
+  if (isInitialLoading) {
+    return (
+      <div className="reports">
+        <header className="reports__header">
+          <div>
+            <h2>Reportes operativos</h2>
+            <p>Cargando información de los reportes...</p>
+          </div>
+        </header>
+      </div>
+    );
+  }
+
+
 
   return (
     <div className="reports">
